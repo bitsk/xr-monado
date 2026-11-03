@@ -297,3 +297,6 @@ if(ANDROID)
 
 	target_link_libraries(target_instance_no_comp PRIVATE aux_android)
 endif()
+
+target_sources(target_lists PRIVATE a081_device.c target_builder_a081.c)
+target_link_libraries(target_lists PRIVATE aux_math)

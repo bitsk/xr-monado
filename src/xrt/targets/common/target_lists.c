@@ -119,7 +119,9 @@
 /*!
  * Builders
  */
+struct xrt_builder *t_builder_a081_create(void);
 xrt_builder_create_func_t target_builder_list[] = {
+    t_builder_a081_create,
 #ifdef T_BUILDER_QWERTY // High up to override any real hardware.
     t_builder_qwerty_create,
 #endif // T_BUILDER_QWERTY
