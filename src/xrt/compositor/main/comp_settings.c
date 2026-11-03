@@ -171,8 +171,10 @@ comp_settings_init(struct comp_settings *s, struct xrt_device *xdev)
 	if (debug_get_bool_option_force_wayland()) {
 		s->target_identifier = "wayland";
 
-		// HMD screen tends to be much larger then monitors.
-		s->preferred.width /= 2;
-		s->preferred.height /= 2;
+		// Fullscreen may be the actual HMD panel on split GPU/KMS systems.
+		if (!s->fullscreen) {
+			s->preferred.width /= 2;
+			s->preferred.height /= 2;
+		}
 	}
 }

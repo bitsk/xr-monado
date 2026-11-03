@@ -51,6 +51,9 @@
 #include <stdio.h>
 #include <assert.h>
 #include <math.h>
+#include <inttypes.h>
+
+DEBUG_GET_ONCE_BOOL_OPTION(a081_frame_timing, "XRT_A081_COMPOSITOR_TIMING", false)
 
 DEBUG_GET_ONCE_LOG_OPTION(comp_frame_lag_level, "XRT_COMP_FRAME_LAG_LOG_AS_LEVEL", U_LOGGING_WARN)
 #define LOG_FRAME_LAG(...) U_LOG_IFL(debug_get_log_option_comp_frame_lag_level(), u_log_get_global_level(), __VA_ARGS__)
@@ -1025,6 +1028,13 @@ comp_renderer_draw(struct comp_renderer *r)
 	struct comp_target *ct = r->c->target;
 	struct comp_compositor *c = r->c;
 
+	// Opt-in observation only: do not change submission, waits or pacing.
+	const bool timing = debug_get_bool_option_a081_frame_timing();
+	uint64_t phases[7] = {0};
+	uint64_t measured_gpu_ns = 0;
+	bool measured_gpu_valid = false;
+	if (timing) phases[0] = os_monotonic_get_ns();
+
 	// Check that we don't have any bad data.
 	assert(!comp_frame_is_invalid_locked(&c->frame.waited));
 	assert(comp_frame_is_invalid_locked(&c->frame.rendering));
@@ -1057,6 +1067,8 @@ comp_renderer_draw(struct comp_renderer *r)
 	}
 
 	comp_target_update_timings(ct);
+
+	if (timing) phases[1] = os_monotonic_get_ns();
 
 	// Hardcoded for now.
 	const uint32_t view_count = c->nr.view_count;
@@ -1093,6 +1105,7 @@ comp_renderer_draw(struct comp_renderer *r)
 	if (res != VK_SUCCESS) {
 		return XRT_ERROR_VULKAN;
 	}
+	if (timing) phases[2] = os_monotonic_get_ns();
 
 #ifdef XRT_FEATURE_WINDOW_PEEK
 	if (c->peek) {
@@ -1128,6 +1141,7 @@ comp_renderer_draw(struct comp_renderer *r)
 
 	renderer_present_swapchain_image(r, c->frame.rendering.desired_present_time_ns,
 	                                 c->frame.rendering.present_slop_ns);
+	if (timing) phases[3] = os_monotonic_get_ns();
 
 	// Save for timestamps below.
 	uint64_t frame_id = c->frame.rendering.id;
@@ -1172,6 +1186,7 @@ comp_renderer_draw(struct comp_renderer *r)
 	 * This is done after a swap so isn't time critical.
 	 */
 	renderer_wait_queue_idle(r);
+	if (timing) phases[4] = os_monotonic_get_ns();
 
 	/*
 	 * Free any resources and finalize the scratch images,
@@ -1189,6 +1204,18 @@ comp_renderer_draw(struct comp_renderer *r)
 		if (render_resources_get_timestamps(&c->nr, &gpu_start_ns, &gpu_end_ns)) {
 			uint64_t now_ns = os_monotonic_get_ns();
 			comp_target_info_gpu(ct, frame_id, gpu_start_ns, gpu_end_ns, now_ns);
+			if (timing && gpu_end_ns >= gpu_start_ns) {
+				measured_gpu_ns = gpu_end_ns - gpu_start_ns;
+				measured_gpu_valid = true;
+			}
+		}
+		// A duration needs no GPU-to-host clock mapping. Use only the existing
+		// two queries after the existing queue-idle wait; never invent an epoch.
+		if (timing && !measured_gpu_valid && c->base.vk.features.timestamp_valid_bits > 0) {
+			measured_gpu_valid = render_resources_get_duration(&c->nr, &measured_gpu_ns);
+			if (measured_gpu_valid && measured_gpu_ns > os_monotonic_get_ns() - phases[0]) {
+				measured_gpu_valid = false; // Invalid result or timestamp wrap.
+			}
 		}
 	}
 
@@ -1203,10 +1230,27 @@ comp_renderer_draw(struct comp_renderer *r)
 		render_gfx_fini(&render_g);
 	}
 
+	if (timing) phases[5] = os_monotonic_get_ns();
 	renderer_wait_for_present(r, desired_present_time_ns);
 
 	comp_target_update_timings(ct);
 
+	if (timing) {
+		phases[6] = os_monotonic_get_ns();
+		fprintf(stderr,
+		        "A081_COMP_TIMING frame=%" PRIu64 " mono_start_ns=%" PRIu64
+		        " acquire_update_ns=%" PRIu64 " dispatch_ns=%" PRIu64
+		        " present_call_ns=%" PRIu64 " queue_idle_ns=%" PRIu64
+		        " finish_query_ns=%" PRIu64 " wait_present_ns=%" PRIu64 " total_ns=%" PRIu64
+		        " gpu_duration_valid=%u gpu_duration_ns=%" PRIu64
+		        " compute=%u calibrated=%u present_wait_supported=%u\n",
+		        frame_id, phases[0], phases[1] - phases[0], phases[2] - phases[1],
+		        phases[3] - phases[2], phases[4] - phases[3], phases[5] - phases[4],
+		        phases[6] - phases[5], phases[6] - phases[0],
+		        (unsigned)measured_gpu_valid, measured_gpu_ns, (unsigned)use_compute,
+		        (unsigned)c->base.vk.has_EXT_calibrated_timestamps,
+		        (unsigned)ct->wait_for_present_supported);
+	}
 	return xret;
 }
 
