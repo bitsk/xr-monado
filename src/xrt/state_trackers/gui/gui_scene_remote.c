@@ -47,6 +47,9 @@ struct gui_remote
 	bool right_trigger_was_pressed_last_frame;
 
 	bool cheat_menu;
+	bool auto_connect;
+	bool angles_initialized;
+	struct xrt_vec3 angles[3];
 
 	char address[1024];
 	int port;
@@ -80,29 +83,32 @@ handle_draggable_vec3_f32(const char *name, struct xrt_vec3 *v, const struct xrt
 }
 
 static void
-handle_draggable_quat(const char *name, struct xrt_quat *q, const struct xrt_quat *reset)
+pose_angles(const struct xrt_pose *pose, struct xrt_vec3 *angles)
 {
-	float min = -1.0f;
-	float max = 1.0f;
+	// m_api returns Z/Y/X Euler components; the forward function consumes X/Y/Z.
+	struct xrt_vec3 zyx;
+	math_quat_to_euler_angles(&pose->orientation, &zyx);
+	*angles = (struct xrt_vec3){zyx.z, zyx.y, zyx.x};
+}
 
-	char tmp[256];
-
-	snprintf(tmp, sizeof(tmp), "%s.reset", name);
-
-	if (igArrowButton(tmp, ImGuiDir_Left)) {
-		*q = *reset;
+static void
+handle_pose_sliders(struct xrt_pose *pose, const struct xrt_pose *reset, struct xrt_vec3 *angles)
+{
+	igText("Position in metres. Rotation in degrees. +Y up, -Z forward.");
+	if (igButton("Reset pose", zero_dims)) {
+		*pose = *reset;
+		pose_angles(pose, angles);
 	}
-
-	igSameLine(0, 3);
-	igDragFloat4(name, (float *)q, 0.005f, min, max, "%+f", 1.0f);
-
-	// Avoid invalid
-	if (q->x == 0.0f && q->y == 0.0f && q->z == 0.0f && q->w == 0.0f) {
-		q->w = 1.0f;
+	igSliderFloat("X (m)", &pose->position.x, -3.0f, 3.0f, "%.3f", 0);
+	igSliderFloat("Y (m)", &pose->position.y, 0.0f, 3.0f, "%.3f", 0);
+	igSliderFloat("Z (m)", &pose->position.z, -5.0f, 3.0f, "%.3f", 0);
+	bool changed = false;
+	changed |= igSliderAngle("Yaw / Y", &angles->y, -180.0f, 180.0f, "%.1f deg", 0);
+	changed |= igSliderAngle("Pitch / X", &angles->x, -89.0f, 89.0f, "%.1f deg", 0);
+	changed |= igSliderAngle("Roll / Z", &angles->z, -180.0f, 180.0f, "%.1f deg", 0);
+	if (changed) {
+		math_quat_from_euler_angles(angles, &pose->orientation);
 	}
-
-	// And make sure it's a unit rotation.
-	math_quat_normalize(q);
 }
 
 static bool
@@ -310,12 +316,6 @@ render_cheat_menu(struct gui_remote *gr, struct gui_program *p)
 	}
 }
 
-#define POSE(prefix)                                                                                                   \
-	do {                                                                                                           \
-		handle_draggable_vec3_f32(#prefix ".pose.position", &d->prefix.position, &r->prefix.position);         \
-		handle_draggable_quat(#prefix ".pose.orientation", &d->prefix.orientation, &r->prefix.orientation);    \
-	} while (false)
-
 #define LIN_ANG(prefix)                                                                                                \
 	do {                                                                                                           \
 		handle_draggable_vec3_f32(#prefix ".linear_velocity", &d->prefix.linear_velocity,                      \
@@ -346,27 +346,55 @@ on_connected(struct gui_remote *gr, struct gui_program *p)
 	const struct r_remote_data *r = &gr->reset;
 	struct r_remote_data *d = &gr->data;
 
-	igPushID_Ptr(&d->head); // Make all IDs unique.
-	POSE(head.center);
-	igPopID(); // Pop unique IDs
-
-	igPushID_Ptr(&d->left); // Make all IDs unique.
-	POSE(left.pose);
-	LIN_ANG(left);
-	BUTTONS(left);
-	HAND(left);
-	igPopID(); // Pop unique IDs
-
-	igPushID_Ptr(&d->right); // Make all IDs unique.
-	POSE(right.pose);
-	LIN_ANG(right);
-	BUTTONS(right);
-	HAND(right);
-	igPopID(); // Pop unique IDs
-
+	if (!gr->angles_initialized) {
+		pose_angles(&d->head.center, &gr->angles[0]);
+		pose_angles(&d->left.pose, &gr->angles[1]);
+		pose_angles(&d->right.pose, &gr->angles[2]);
+		gr->angles_initialized = true;
+	}
+	igText("Connected to %s:%d | live OpenXR simulation input", gr->address, gr->port);
+	if (igButton("Reset all devices", zero_dims)) {
+		*d = gr->reset;
+		gr->angles_initialized = false;
+	}
+	if (igBeginTabBar("Simulation devices", 0)) {
+		if (igBeginTabItem("Head / view", NULL, 0)) {
+			igPushID_Ptr(&d->head);
+			handle_pose_sliders(&d->head.center, &r->head.center, &gr->angles[0]);
+			igPopID();
+			igEndTabItem();
+		}
+		if (igBeginTabItem("Left controller", NULL, 0)) {
+			igPushID_Ptr(&d->left);
+			handle_pose_sliders(&d->left.pose, &r->left.pose, &gr->angles[1]);
+			BUTTONS(left);
+			if (igTreeNode_Str("Velocities and hand tracking")) {
+				LIN_ANG(left);
+				HAND(left);
+				igTreePop();
+			}
+			igPopID();
+			igEndTabItem();
+		}
+		if (igBeginTabItem("Right controller", NULL, 0)) {
+			igPushID_Ptr(&d->right);
+			handle_pose_sliders(&d->right.pose, &r->right.pose, &gr->angles[2]);
+			BUTTONS(right);
+			if (igTreeNode_Str("Velocities and hand tracking")) {
+				LIN_ANG(right);
+				HAND(right);
+				igTreePop();
+			}
+			igPopID();
+			igEndTabItem();
+		}
+		igEndTabBar();
+	}
 	igCheckbox("Predefined poses", &gr->cheat_menu);
 	if (gr->cheat_menu) {
 		render_cheat_menu(gr, p);
+		// Presets can change the quaternion directly.
+		gr->angles_initialized = false;
 	}
 
 	r_remote_connection_write_one(&gr->rc, &gr->data);
@@ -378,7 +406,8 @@ on_not_connected(struct gui_remote *gr, struct gui_program *p)
 	igInputText("Address", gr->address, sizeof(gr->address), 0, NULL, NULL);
 	igInputInt("Port", &gr->port, 1, 1, 0);
 
-	bool connect = igButton("Connect", zero_dims);
+	bool connect = igButton("Connect", zero_dims) || gr->auto_connect;
+	gr->auto_connect = false;
 
 	igSameLine(0, 4.0f);
 
@@ -391,7 +420,9 @@ on_not_connected(struct gui_remote *gr, struct gui_program *p)
 		return;
 	}
 
-	r_remote_connection_init(&gr->rc, gr->address, gr->port);
+	if (r_remote_connection_init(&gr->rc, gr->address, gr->port) != 0) {
+		return;
+	}
 	r_remote_connection_read_one(&gr->rc, &gr->reset);
 	r_remote_connection_read_one(&gr->rc, &gr->data);
 }
@@ -410,7 +441,9 @@ scene_render(struct gui_scene *scene, struct gui_program *p)
 	struct gui_remote *gr = (struct gui_remote *)scene;
 	(void)gr;
 
-	igBegin("Remote control", NULL, 0);
+	igSetNextWindowPos((ImVec2){8, 8}, ImGuiCond_FirstUseEver, (ImVec2){0, 0});
+	igSetNextWindowSize((ImVec2){580, 720}, ImGuiCond_FirstUseEver);
+	igBegin("OpenXR Simulator Controls", NULL, 0);
 
 #ifdef XRT_BUILD_DRIVER_REMOTE
 #ifdef XRT_OS_WINDOWS
@@ -463,12 +496,23 @@ gui_scene_remote(struct gui_program *p, const char *address)
 #endif
 
 	// GUI input defaults.
+	gr->port = 4242;
 	if (address != NULL) {
+		gr->auto_connect = true;
 		snprintf(gr->address, sizeof(gr->address), "%s", address);
+		// Remote connections use IPv4; accept host:port for independent sessions.
+		char *separator = strrchr(gr->address, ':');
+		if (separator != NULL) {
+			char *end = NULL;
+			long port = strtol(separator + 1, &end, 10);
+			if (end != separator + 1 && *end == '\0' && port > 0 && port <= 65535) {
+				*separator = '\0';
+				gr->port = (int)port;
+			}
+		}
 	} else {
 		snprintf(gr->address, sizeof(gr->address), "localhost");
 	}
-	gr->port = 4242;
 
 	gr->reset.header = R_HEADER_VALUE;
 	gr->data.header = R_HEADER_VALUE;
