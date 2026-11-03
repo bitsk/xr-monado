@@ -15,6 +15,9 @@
 #include <cstring>
 #include <cassert>
 #include <array>
+#include <algorithm>
+#include <atomic>
+#include <system_error>
 #include <thread>
 
 #include "math/m_api.h"
@@ -42,6 +45,7 @@ extern "C" {
 #include "b_ovrd_generated_bindings.h"
 }
 #include "math/m_vec3.h"
+#include "a081_controller_openvr.hpp"
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -54,6 +58,10 @@ extern "C" {
 DEBUG_GET_ONCE_BOOL_OPTION(emulate_index_controller, "STEAMVR_EMULATE_INDEX_CONTROLLER", false)
 
 DEBUG_GET_ONCE_NUM_OPTION(scale_percentage, "XRT_COMPOSITOR_SCALE_PERCENTAGE", 140)
+
+// Opt-in metadata for trying the physical A081 panel on an existing desktop.
+// This does not implement or bypass SteamVR's native presentation backend.
+DEBUG_GET_ONCE_BOOL_OPTION(a081_steamvr_extended, "A081_STEAMVR_EXTENDED", false)
 
 #define MODELNUM_LEN (XRT_DEVICE_NAME_LEN + 9) // "[Monado] "
 
@@ -1170,7 +1178,7 @@ public:
 		ovrd_log("IPD: %f\n", m_flIPD);
 	};
 	// clang-format off
-	virtual ~CDeviceDriver_Monado() {};
+	virtual ~CDeviceDriver_Monado() { Deactivate(); };
 
 	// ITrackedDeviceServerDriver
 	virtual vr::EVRInitError Activate(vr::TrackedDeviceIndex_t unObjectId);
@@ -1207,7 +1215,7 @@ private:
 	struct xrt_fov m_fovs[2];
 	struct xrt_pose m_view_pose[2];
 
-	bool m_poseUpdating = true;
+	std::atomic<bool> m_poseUpdating{false};
 	std::thread *m_poseUpdateThread = NULL;
 	virtual void PoseUpdateThreadFunction();
 
@@ -1250,6 +1258,9 @@ CDeviceDriver_Monado::PoseUpdateThreadFunction()
 vr::EVRInitError
 CDeviceDriver_Monado::Activate(vr::TrackedDeviceIndex_t unObjectId)
 {
+	if (m_poseUpdateThread != NULL) {
+		return vr::VRInitError_Driver_Failed;
+	}
 	ovrd_log("Activate tracked device %u: %s\n", unObjectId, m_xdev->str);
 
 	m_trackedDeviceIndex = unObjectId;
@@ -1274,6 +1285,14 @@ CDeviceDriver_Monado::Activate(vr::TrackedDeviceIndex_t unObjectId)
 	// avoid "not fullscreen" warnings from vrmonitor
 	//vr::VRProperties()->SetBoolProperty(m_ulPropertyContainer, vr::Prop_IsOnDesktop_Bool, false);
 
+	if (strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0) {
+		vr::VRProperties()->SetBoolProperty(m_ulPropertyContainer, vr::Prop_IsOnDesktop_Bool, IsDisplayOnDesktop());
+		vr::VRProperties()->SetBoolProperty(m_ulPropertyContainer, vr::Prop_HasDisplayComponent_Bool, true);
+		vr::VRProperties()->SetBoolProperty(m_ulPropertyContainer, vr::Prop_HasDriverDirectModeComponent_Bool, false);
+		vr::VRProperties()->SetBoolProperty(m_ulPropertyContainer, vr::Prop_HasVirtualDisplayComponent_Bool, false);
+		ovrd_log("A081 display component: desktop=%d, driver direct mode=0, virtual display=0\n", IsDisplayOnDesktop());
+	}
+
 	// clang-format on
 
 
@@ -1286,9 +1305,12 @@ CDeviceDriver_Monado::Activate(vr::TrackedDeviceIndex_t unObjectId)
 	vr::VRServerDriverHost()->SetDisplayEyeToHead(m_trackedDeviceIndex, left, right);
 
 
-	m_poseUpdateThread = new std::thread(&CDeviceDriver_Monado::PoseUpdateThreadFunction, this);
-	if (!m_poseUpdateThread) {
-		ovrd_log("Unable to create pose updated thread for %s\n", m_xdev->str);
+	m_poseUpdating = true;
+	try {
+		m_poseUpdateThread = new std::thread(&CDeviceDriver_Monado::PoseUpdateThreadFunction, this);
+	} catch (const std::system_error &) {
+		m_poseUpdating = false;
+		ovrd_log("Unable to create pose update thread for %s\n", m_xdev->str);
 		return vr::VRInitError_Driver_Failed;
 	}
 
@@ -1299,7 +1321,14 @@ void
 CDeviceDriver_Monado::Deactivate()
 {
 	m_poseUpdating = false;
-	m_poseUpdateThread->join();
+	if (m_poseUpdateThread != NULL) {
+		if (m_poseUpdateThread->joinable()) {
+			m_poseUpdateThread->join();
+		}
+		delete m_poseUpdateThread;
+		m_poseUpdateThread = NULL;
+	}
+	m_trackedDeviceIndex = vr::k_unTrackedDeviceIndexInvalid;
 	ovrd_log("Deactivate\n");
 }
 
@@ -1338,13 +1367,20 @@ HmdQuaternion_Init(double w, double x, double y, double z)
 	};
 }
 
+extern "C" bool a081_qvr_latest_pose(struct xrt_device *, struct xrt_space_relation *, int64_t *);
+
 vr::DriverPose_t
 CDeviceDriver_Monado::GetPose()
 {
 
 	timepoint_ns now_ns = os_monotonic_get_ns();
 	struct xrt_space_relation rel;
-	xrt_device_get_tracked_pose(m_xdev, XRT_INPUT_GENERIC_HEAD_POSE, now_ns, &rel);
+	int64_t sample_ns = now_ns;
+	bool raw_qvr = strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0 && m_xdev->supported.position_tracking;
+	if (raw_qvr)
+		a081_qvr_latest_pose(m_xdev, &rel, &sample_ns);
+	else
+		xrt_device_get_tracked_pose(m_xdev, XRT_INPUT_GENERIC_HEAD_POSE, now_ns, &rel);
 
 	struct xrt_pose *offset = &m_xdev->tracking_origin->initial_offset;
 
@@ -1354,8 +1390,8 @@ CDeviceDriver_Monado::GetPose()
 	m_relation_chain_resolve(&chain, &rel);
 
 	vr::DriverPose_t t = {
-	    // monado predicts pose "now", see xrt_device_get_tracked_pose
-	    .poseTimeOffset = 0,
+	    // QVR supplies an unpredicted measured sample with its actual monotonic time.
+	    .poseTimeOffset = raw_qvr ? double(sample_ns - int64_t(os_monotonic_get_ns())) / 1e9 : 0,
 	    .qWorldFromDriverRotation = HmdQuaternion_Init(1, 0, 0, 0),
 	    .vecWorldFromDriverTranslation = {0, 0, 0},
 
@@ -1372,12 +1408,20 @@ CDeviceDriver_Monado::GetPose()
 	    .vecAngularAcceleration = {0, 0, 0},
 
 	    .result = vr::TrackingResult_Running_OK,
-	    .poseIsValid = (rel.relation_flags & XRT_SPACE_RELATION_ORIENTATION_VALID_BIT) != 0,
+	    .poseIsValid = raw_qvr ?
+	                   (rel.relation_flags & (XRT_SPACE_RELATION_ORIENTATION_VALID_BIT | XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT |
+	                                          XRT_SPACE_RELATION_POSITION_VALID_BIT | XRT_SPACE_RELATION_POSITION_TRACKED_BIT)) ==
+	                    (XRT_SPACE_RELATION_ORIENTATION_VALID_BIT | XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT |
+	                     XRT_SPACE_RELATION_POSITION_VALID_BIT | XRT_SPACE_RELATION_POSITION_TRACKED_BIT) :
+	                    (rel.relation_flags & XRT_SPACE_RELATION_ORIENTATION_VALID_BIT) != 0,
 	    .willDriftInYaw = !m_xdev->supported.position_tracking,
-	    //! @todo: Monado head model?
-	    .shouldApplyHeadModel = !m_xdev->supported.position_tracking,
+	    // A081 supplies measured orientation only; do not synthesize neck motion.
+	    .shouldApplyHeadModel = !m_xdev->supported.position_tracking &&
+	                            strcmp(m_xdev->serial, "A081-LINUX-IIO") != 0,
 	    .deviceIsConnected = true,
 	};
+	if (strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0 && m_xdev->supported.position_tracking && !t.poseIsValid)
+		t.result = vr::TrackingResult_Running_OutOfRange;
 	apply_pose(&rel, &t);
 
 #ifdef DUMP_POSE
@@ -1400,8 +1444,8 @@ CDeviceDriver_Monado::GetPose()
 void
 CDeviceDriver_Monado::GetWindowBounds(int32_t *pnX, int32_t *pnY, uint32_t *pnWidth, uint32_t *pnHeight)
 {
-	// offset in extended mode, e.g. to the right of a 1920x1080 monitor
-	*pnX = 1920;
+	// A081's complete panel starts at zero; it is not a second desktop monitor.
+	*pnX = strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0 ? 0 : 1920;
 	*pnY = 0;
 
 	*pnWidth = m_xdev->hmd->screens[0].w_pixels;
@@ -1414,7 +1458,7 @@ CDeviceDriver_Monado::GetWindowBounds(int32_t *pnX, int32_t *pnY, uint32_t *pnWi
 bool
 CDeviceDriver_Monado::IsDisplayOnDesktop()
 {
-	return false;
+	return strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0 && debug_get_bool_option_a081_steamvr_extended();
 }
 
 bool
@@ -1431,8 +1475,17 @@ CDeviceDriver_Monado::GetRecommendedRenderTargetSize(uint32_t *pnWidth, uint32_t
 
 
 
-	*pnWidth = m_xdev->hmd->screens[0].w_pixels * fscale;
-	*pnHeight = m_xdev->hmd->screens[0].h_pixels * fscale;
+	if (strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0) {
+		// Render dimensions precede the existing per-eye panel rotation. These
+		// are the A081 bring-up dimensions, not newly calibrated lens geometry.
+		*pnWidth = std::max(m_xdev->hmd->views[0].display.w_pixels,
+		                   m_xdev->hmd->views[1].display.w_pixels) * fscale;
+		*pnHeight = std::max(m_xdev->hmd->views[0].display.h_pixels,
+		                    m_xdev->hmd->views[1].display.h_pixels) * fscale;
+	} else {
+		*pnWidth = m_xdev->hmd->screens[0].w_pixels * fscale;
+		*pnHeight = m_xdev->hmd->screens[0].h_pixels * fscale;
+	}
 
 	ovrd_log("Render Target Size: %dx%d (%fx)\n", *pnWidth, *pnHeight, fscale);
 }
@@ -1549,6 +1602,7 @@ private:
 	CDeviceDriver_Monado *m_MonadoDeviceDriver = NULL;
 	CDeviceDriver_Monado_Controller *m_left = NULL;
 	CDeviceDriver_Monado_Controller *m_right = NULL;
+	A081ControllerPosePair m_a081_pose_controllers;
 };
 
 CServerDriver_Monado g_serverDriverMonado;
@@ -1620,12 +1674,15 @@ CServerDriver_Monado::Init(vr::IVRDriverContext *pDriverContext)
 		ovrd_log("Added right Controller: %s\n", right_xdev->str);
 	}
 
+	if (!m_a081_pose_controllers.configure(strcmp(m_xhmd->serial, "A081-LINUX-IIO") == 0))
+		return vr::VRInitError_Driver_Failed;
 	return vr::VRInitError_None;
 }
 
 void
 CServerDriver_Monado::Cleanup()
 {
+	m_a081_pose_controllers.cleanup();
 	if (m_MonadoDeviceDriver != NULL) {
 		delete m_MonadoDeviceDriver;
 		m_MonadoDeviceDriver = NULL;
@@ -1635,8 +1692,13 @@ CServerDriver_Monado::Cleanup()
 	xrt_system_devices_destroy(&m_xsysd);
 	xrt_system_destroy(&m_xsys);
 	m_xhmd = NULL;
-	m_left->m_xdev = NULL;
-	m_right->m_xdev = NULL;
+	// A081 currently supplies an HMD only, without either controller.
+	if (m_left != NULL) {
+		m_left->m_xdev = NULL;
+	}
+	if (m_right != NULL) {
+		m_right->m_xdev = NULL;
+	}
 
 	if (m_xinst) {
 		xrt_instance_destroy(&m_xinst);
@@ -1690,6 +1752,7 @@ CServerDriver_Monado::HandleHapticEvent(vr::VREvent_t *event)
 void
 CServerDriver_Monado::RunFrame()
 {
+	m_a081_pose_controllers.frame();
 	if (m_left) {
 		m_left->RunFrame();
 	}
