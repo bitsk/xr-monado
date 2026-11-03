@@ -374,9 +374,11 @@ struct ipc_app_state
 /*!
  * Arguments for creating swapchains from native images.
  */
-struct ipc_arg_swapchain_from_native
+struct ipc_swapchain_image_metadata
 {
-	uint32_t sizes[XRT_MAX_SWAPCHAIN_IMAGES];
+	uint64_t sizes[XRT_MAX_SWAPCHAIN_IMAGES];
+	bool use_dedicated_allocation[XRT_MAX_SWAPCHAIN_IMAGES];
+	struct xrt_image_drm_modifier drm_modifiers[XRT_MAX_SWAPCHAIN_IMAGES];
 };
 
 /*!

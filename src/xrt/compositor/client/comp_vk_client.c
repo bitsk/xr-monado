@@ -800,6 +800,7 @@ client_vk_compositor_create(struct xrt_compositor_native *xcn,
                             bool external_semaphore_fd_enabled,
                             bool timeline_semaphore_enabled,
                             bool image_format_list_enabled,
+                            bool image_drm_format_modifier_enabled,
                             bool debug_utils_enabled,
                             bool renderdoc_enabled,
                             uint32_t queueFamilyIndex,
@@ -857,6 +858,7 @@ client_vk_compositor_create(struct xrt_compositor_native *xcn,
 	    external_semaphore_fd_enabled, // external_semaphore_fd_enabled
 	    timeline_semaphore_enabled,    // timeline_semaphore_enabled
 	    image_format_list_enabled,     // image_format_list_enabled
+	    image_drm_format_modifier_enabled,     // image_drm_format_modifier_enabled
 	    debug_utils_enabled,           // debug_utils_enabled
 	    log_level);                    // log_level
 	if (ret != VK_SUCCESS) {

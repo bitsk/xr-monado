@@ -14,6 +14,7 @@
 
 #include "vk/vk_image_allocator.h"
 
+#include <inttypes.h>
 #include <vulkan/vulkan_core.h>
 #include <xrt/xrt_handles.h>
 
@@ -242,6 +243,19 @@ create_image(struct vk_bundle *vk, const struct xrt_swapchain_create_info *info,
 	if (info->face_count == 6) {
 		image_create_flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 	}
+	uint64_t modifier = 0;
+	const bool use_drm = vk_csci_use_drm_modifiers(vk);
+	VkImageDrmFormatModifierListCreateInfoEXT drm_create = {
+	    .sType = VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_LIST_CREATE_INFO_EXT,
+	    .drmFormatModifierCount = 1,
+	    .pDrmFormatModifiers = &modifier,
+	};
+	if (use_drm) {
+		if (!vk_csci_get_drm_modifier(vk, image_format, info->bits, &modifier)) {
+			return VK_ERROR_FORMAT_NOT_SUPPORTED;
+		}
+		CHAIN(drm_create);
+	}
 
 	VkImageCreateInfo create_info = {
 	    .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -253,7 +267,7 @@ create_image(struct vk_bundle *vk, const struct xrt_swapchain_create_info *info,
 	    .mipLevels = info->mip_count,
 	    .arrayLayers = info->array_size * info->face_count,
 	    .samples = VK_SAMPLE_COUNT_1_BIT,
-	    .tiling = VK_IMAGE_TILING_OPTIMAL,
+	    .tiling = use_drm ? VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT : VK_IMAGE_TILING_OPTIMAL,
 	    .usage = image_usage,
 	    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 	    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -363,6 +377,21 @@ create_image(struct vk_bundle *vk, const struct xrt_swapchain_create_info *info,
 	out_image->memory = device_memory;
 	out_image->size = memory_requirements.memoryRequirements.size;
 	out_image->use_dedicated_allocation = use_dedicated_allocation;
+	if (use_drm) {
+		VkImageDrmFormatModifierPropertiesEXT props = {
+		    .sType = VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_PROPERTIES_EXT,
+		};
+		ret = vk->vkGetImageDrmFormatModifierPropertiesEXT(vk->device, image, &props);
+		if (ret != VK_SUCCESS) {
+			vk->vkDestroyImage(vk->device, image, NULL);
+			vk->vkFreeMemory(vk->device, device_memory, NULL);
+			U_ZERO(out_image);
+			return ret;
+		}
+		out_image->drm_modifier.valid = true;
+		out_image->drm_modifier.value = props.drmFormatModifier;
+		VK_INFO(vk, "Exporting opaque DRM image modifier=0x%" PRIx64, props.drmFormatModifier);
+	}
 
 	return ret;
 }

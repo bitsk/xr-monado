@@ -572,6 +572,12 @@ static const char *required_device_extensions[] = {
 };
 
 static const char *optional_device_extensions[] = {
+#if defined(XRT_GRAPHICS_BUFFER_HANDLE_IS_FD) && defined(VK_EXT_image_drm_format_modifier)
+    VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
+    VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
+    VK_KHR_MAINTENANCE_1_EXTENSION_NAME,
+    VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME,
+#endif
     VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME, //
     VK_EXT_GLOBAL_PRIORITY_EXTENSION_NAME,   //
 

@@ -2178,11 +2178,18 @@ struct xrt_compositor_d3d12
  */
 
 /*!
- * A single image of a swapchain based on native buffer handles.
+ * DRM modifier identity for an opaque native Vulkan image.
  *
  * @ingroup xrt_iface comp
  * @see xrt_swapchain_native, xrt_graphics_buffer_handle_t
  */
+struct xrt_image_drm_modifier
+{
+	bool valid;
+	uint64_t value;
+};
+
+//! A single swapchain image based on a native buffer handle and optional DRM modifier.
 struct xrt_image_native
 {
 	/*!
@@ -2203,6 +2210,9 @@ struct xrt_image_native
 	 * Is the image created with a dedicated allocation or not.
 	 */
 	bool use_dedicated_allocation;
+
+	//! Linux DRM modifier identity, including valid modifier zero (LINEAR).
+	struct xrt_image_drm_modifier drm_modifier;
 
 	/*!
 	 * Is the native buffer handle a DXGI handle?

@@ -85,6 +85,7 @@ oxr_session_populate_vk(struct oxr_logger *log,
 	bool external_semaphore_fd_enabled = sess->sys->vk.external_semaphore_fd_enabled;
 	bool image_format_list_enabled =
 	    sys->inst->extensions.KHR_vulkan_enable || sess->sys->vk.image_format_list_enabled;
+	bool image_drm_format_modifier_enabled = sess->sys->vk.image_drm_format_modifier_enabled;
 	bool debug_utils_enabled = false;
 	bool renderdoc_enabled = false;
 
@@ -150,6 +151,7 @@ oxr_session_populate_vk(struct oxr_logger *log,
 	    external_semaphore_fd_enabled,                           //
 	    timeline_semaphore_enabled,                              //
 	    image_format_list_enabled,                               //
+	    image_drm_format_modifier_enabled,                       //
 	    debug_utils_enabled,                                     //
 	    renderdoc_enabled,                                       //
 	    next->queueFamilyIndex,                                  //

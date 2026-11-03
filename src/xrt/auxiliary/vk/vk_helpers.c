@@ -1115,7 +1115,8 @@ vk_create_image_from_native(struct vk_bundle *vk,
 	VkExternalMemoryHandleTypeFlags handle_type = vk_csci_get_image_external_handle_type(vk, image_native);
 
 	bool importable = false;
-	vk_csci_get_image_external_support(vk, image_format, info->bits, handle_type, &importable, NULL);
+	vk_csci_get_image_external_support(vk, image_format, info->bits, handle_type,
+	                                   &image_native->drm_modifier, &importable, NULL);
 
 	if (!importable) {
 		VK_ERROR(vk, "External memory handle is not importable");
@@ -1174,6 +1175,20 @@ vk_create_image_from_native(struct vk_bundle *vk,
 	    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 	    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 	};
+	VkImageDrmFormatModifierListCreateInfoEXT drm_create = {
+	    .sType = VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_LIST_CREATE_INFO_EXT,
+	    .pNext = external_memory_image_create_info.pNext,
+	    .drmFormatModifierCount = 1,
+	    .pDrmFormatModifiers = &image_native->drm_modifier.value,
+	};
+	if (image_native->drm_modifier.valid) {
+		// OPAQUE_FD on the same physical device requires identical images.
+		// Recreate the allocator's single chosen modifier and image parameters.
+		vk_info.tiling = VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT;
+		external_memory_image_create_info.pNext = &drm_create;
+		VK_DEBUG(vk, "Importing opaque DRM image modifier=0x%" PRIx64,
+		         image_native->drm_modifier.value);
+	}
 
 	VkImage image = VK_NULL_HANDLE;
 	ret = vk->vkCreateImage(vk->device, &vk_info, NULL, &image);

@@ -1156,6 +1156,7 @@ struct oxr_system
 		bool timeline_semaphore_enabled;
 		bool debug_utils_enabled;
 		bool image_format_list_enabled;
+		bool image_drm_format_modifier_enabled;
 	} vk;
 
 #endif

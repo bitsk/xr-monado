@@ -942,6 +942,7 @@ vk_init_from_given(struct vk_bundle *vk,
                    bool external_semaphore_fd_enabled,
                    bool timeline_semaphore_enabled,
                    bool image_format_list_enabled,
+                   bool image_drm_format_modifier_enabled,
                    bool debug_utils_enabled,
                    enum u_logging_level log_level);
 
@@ -1443,8 +1444,20 @@ vk_csci_get_image_external_support(struct vk_bundle *vk,
                                    VkFormat image_format,
                                    enum xrt_swapchain_usage_bits bits,
                                    VkExternalMemoryHandleTypeFlags handle_type,
+                                   const struct xrt_image_drm_modifier *drm_modifier,
                                    bool *out_importable,
                                    bool *out_exportable);
+
+//! Opt-in native Vulkan modifier allocation; both sides must enable the extension.
+bool
+vk_csci_use_drm_modifiers(struct vk_bundle *vk);
+
+//! Choose a supported single-memory-plane modifier for a shared Vulkan image.
+bool
+vk_csci_get_drm_modifier(struct vk_bundle *vk,
+                         VkFormat format,
+                         enum xrt_swapchain_usage_bits bits,
+                         uint64_t *out_modifier);
 
 /*!
  * Verify if a format is supported for a specific usage

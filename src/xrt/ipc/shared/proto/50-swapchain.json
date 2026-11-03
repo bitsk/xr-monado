@@ -17,8 +17,7 @@
 		"out": [
 			{"name": "id", "type": "uint32_t"},
 			{"name": "image_count", "type": "uint32_t"},
-			{"name": "size", "type": "uint64_t"},
-			{"name": "use_dedicated_allocation", "type": "bool"}
+			{"name": "metadata", "type": "struct ipc_swapchain_image_metadata"}
 		],
 		"out_handles": {"type": "xrt_graphics_buffer_handle_t"}
 	},
@@ -26,7 +25,7 @@
 	"swapchain_import": {
 		"in": [
 			{"name": "info", "type": "struct xrt_swapchain_create_info"},
-			{"name": "args", "type": "struct ipc_arg_swapchain_from_native"}
+			{"name": "args", "type": "struct ipc_swapchain_image_metadata"}
 		],
 		"out": [
 			{"name": "id", "type": "uint32_t"}

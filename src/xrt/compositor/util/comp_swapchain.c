@@ -539,6 +539,7 @@ comp_swapchain_create_init(struct comp_swapchain *sc,
 		sc->base.images[i].handle = handles[i];
 		sc->base.images[i].size = sc->vkic.images[i].size;
 		sc->base.images[i].use_dedicated_allocation = sc->vkic.images[i].use_dedicated_allocation;
+		sc->base.images[i].drm_modifier = sc->vkic.images[i].drm_modifier;
 	}
 
 	xrt_result_t res = do_post_create_vulkan_setup(vk, info, sc);

@@ -167,6 +167,12 @@ static const char *optional_device_extensions[] = {
 #error "Need port!"
 #endif
 
+#if defined(XRT_GRAPHICS_BUFFER_HANDLE_IS_FD) && defined(VK_EXT_image_drm_format_modifier)
+    VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
+    VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
+    VK_KHR_MAINTENANCE_1_EXTENSION_NAME,
+    VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME,
+#endif
 #ifdef VK_KHR_image_format_list
     VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME,
 #endif
@@ -425,6 +431,7 @@ oxr_vk_create_vulkan_device(struct oxr_logger *log,
 	bool external_semaphore_fd_enabled = false;
 #endif
 	bool image_format_list_enabled = false;
+	bool image_drm_format_modifier_enabled = false;
 
 	for (uint32_t i = 0; i < ARRAY_SIZE(optional_device_extensions); i++) {
 		// Empty list or a not supported extension.
@@ -444,6 +451,11 @@ oxr_vk_create_vulkan_device(struct oxr_logger *log,
 		}
 #endif
 
+#ifdef VK_EXT_image_drm_format_modifier
+		if (strcmp(optional_device_extensions[i], VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME) == 0) {
+			image_drm_format_modifier_enabled = true;
+		}
+#endif
 		if (strcmp(optional_device_extensions[i], VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME) == 0) {
 			image_format_list_enabled = true;
 		}
@@ -556,6 +568,10 @@ oxr_vk_create_vulkan_device(struct oxr_logger *log,
 		sys->vk.image_format_list_enabled = image_format_list_enabled;
 	}
 #endif
+
+	if (*vulkanResult == VK_SUCCESS) {
+		sys->vk.image_drm_format_modifier_enabled = image_drm_format_modifier_enabled;
+	}
 
 	u_extension_list_destroy(&device_extension_list);
 

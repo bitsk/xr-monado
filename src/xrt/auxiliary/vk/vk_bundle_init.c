@@ -196,7 +196,7 @@ get_external_image_support(struct vk_bundle *vk,
 	enum xrt_swapchain_usage_bits bits =
 	    depth ? (enum xrt_swapchain_usage_bits)(XRT_SWAPCHAIN_USAGE_DEPTH_STENCIL | XRT_SWAPCHAIN_USAGE_SAMPLED)
 	          : (enum xrt_swapchain_usage_bits)(XRT_SWAPCHAIN_USAGE_COLOR | XRT_SWAPCHAIN_USAGE_SAMPLED);
-	vk_csci_get_image_external_support(vk, image_format, bits, handle_type, out_importable, out_exportable);
+	vk_csci_get_image_external_support(vk, image_format, bits, handle_type, NULL, out_importable, out_exportable);
 }
 
 static bool
@@ -1179,6 +1179,7 @@ vk_init_from_given(struct vk_bundle *vk,
                    bool external_semaphore_fd_enabled,
                    bool timeline_semaphore_enabled,
                    bool image_format_list_enabled,
+                   bool image_drm_format_modifier_enabled,
                    bool debug_utils_enabled,
                    enum u_logging_level log_level)
 {
@@ -1223,6 +1224,10 @@ vk_init_from_given(struct vk_bundle *vk,
 	if (image_format_list_enabled) {
 		vk->has_KHR_image_format_list = image_format_list_enabled;
 	}
+
+#ifdef VK_EXT_image_drm_format_modifier
+	vk->has_EXT_image_drm_format_modifier = image_drm_format_modifier_enabled;
+#endif
 
 #ifdef VK_KHR_timeline_semaphore
 	/*

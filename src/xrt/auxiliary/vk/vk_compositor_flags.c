@@ -225,59 +225,137 @@ vk_csci_get_image_external_handle_type(struct vk_bundle *vk, struct xrt_image_na
 #endif
 }
 
+DEBUG_GET_ONCE_BOOL_OPTION(vk_drm_modifiers, "XRT_VK_DRM_MODIFIERS", false)
+
+bool
+vk_csci_use_drm_modifiers(struct vk_bundle *vk)
+{
+#if defined(XRT_GRAPHICS_BUFFER_HANDLE_IS_FD) && defined(VK_EXT_image_drm_format_modifier)
+	return debug_get_bool_option_vk_drm_modifiers() && vk->has_EXT_image_drm_format_modifier;
+#else
+	return false;
+#endif
+}
+
+static VkResult
+query_external_image(struct vk_bundle *vk,
+                     VkFormat format,
+                     enum xrt_swapchain_usage_bits bits,
+                     VkExternalMemoryHandleTypeFlags handle_type,
+                     const uint64_t *modifier,
+                     VkExternalMemoryFeatureFlags *out_features)
+{
+	VkPhysicalDeviceExternalImageFormatInfo external = {
+	    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO,
+	    .handleType = handle_type,
+	};
+	VkPhysicalDeviceImageDrmFormatModifierInfoEXT drm = {
+	    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_DRM_FORMAT_MODIFIER_INFO_EXT,
+	    .drmFormatModifier = modifier ? *modifier : 0,
+	    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+	};
+	if (modifier) {
+		external.pNext = &drm;
+	}
+	VkPhysicalDeviceImageFormatInfo2 info = {
+	    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
+	    .pNext = &external,
+	    .format = format,
+	    .type = VK_IMAGE_TYPE_2D,
+	    .tiling = modifier ? VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT : VK_IMAGE_TILING_OPTIMAL,
+	    .usage = vk_csci_get_image_usage_flags(vk, format, bits),
+	};
+	if (info.usage == 0) {
+		return VK_ERROR_FORMAT_NOT_SUPPORTED;
+	}
+	VkExternalImageFormatProperties external_props = {
+	    .sType = VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES,
+	};
+	VkImageFormatProperties2 props = {
+	    .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2,
+	    .pNext = &external_props,
+	};
+	VkResult ret = vk->vkGetPhysicalDeviceImageFormatProperties2(vk->physical_device, &info, &props);
+	*out_features = ret == VK_SUCCESS ? external_props.externalMemoryProperties.externalMemoryFeatures : 0;
+	return ret;
+}
+
+bool
+vk_csci_get_drm_modifier(struct vk_bundle *vk,
+                         VkFormat format,
+                         enum xrt_swapchain_usage_bits bits,
+                         uint64_t *out_modifier)
+{
+	if (!vk_csci_use_drm_modifiers(vk)) {
+		return false;
+	}
+	VkDrmFormatModifierPropertiesListEXT list = {
+	    .sType = VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_EXT,
+	};
+	VkFormatProperties2 props = {.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2, .pNext = &list};
+	vk->vkGetPhysicalDeviceFormatProperties2(vk->physical_device, format, &props);
+	if (list.drmFormatModifierCount == 0) {
+		return false;
+	}
+	list.pDrmFormatModifierProperties = calloc(list.drmFormatModifierCount, sizeof(*list.pDrmFormatModifierProperties));
+	if (list.pDrmFormatModifierProperties == NULL) {
+		return false;
+	}
+	vk->vkGetPhysicalDeviceFormatProperties2(vk->physical_device, format, &props);
+	bool found = false;
+	for (uint32_t i = 0; i < list.drmFormatModifierCount; i++) {
+		const VkDrmFormatModifierPropertiesEXT *candidate = &list.pDrmFormatModifierProperties[i];
+		// Start with single-plane layouts: no auxiliary compression/disjoint plane allocation.
+		if (candidate->drmFormatModifierPlaneCount != 1) {
+			continue;
+		}
+		VkExternalMemoryFeatureFlags features = 0;
+		VkResult ret = query_external_image(vk, format, bits,
+		                                   vk_csci_get_image_external_handle_type(vk, NULL),
+		                                   &candidate->drmFormatModifier, &features);
+		const VkExternalMemoryFeatureFlags required =
+		    VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT | VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT;
+		if (ret != VK_SUCCESS || (features & required) != required) {
+			continue;
+		}
+		// Prefer a supported tiled layout over LINEAR; never interpret vendor modifier bits.
+		if (!found || (*out_modifier == 0 && candidate->drmFormatModifier != 0)) {
+			*out_modifier = candidate->drmFormatModifier;
+			found = true;
+		}
+	}
+	free(list.pDrmFormatModifierProperties);
+	return found;
+}
+
 void
 vk_csci_get_image_external_support(struct vk_bundle *vk,
                                    VkFormat image_format,
                                    enum xrt_swapchain_usage_bits bits,
                                    VkExternalMemoryHandleTypeFlags handle_type,
+                                   const struct xrt_image_drm_modifier *drm_modifier,
                                    bool *out_importable,
                                    bool *out_exportable)
 {
-	VkImageUsageFlags image_usage = vk_csci_get_image_usage_flags(vk, image_format, bits);
-
-	// In->pNext
-	VkPhysicalDeviceExternalImageFormatInfo external_image_format_info = {
-	    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO,
-	    .handleType = handle_type,
-	};
-
-	// In
-	VkPhysicalDeviceImageFormatInfo2 format_info = {
-	    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
-	    .pNext = &external_image_format_info,
-	    .format = image_format,
-	    .type = VK_IMAGE_TYPE_2D,
-	    .tiling = VK_IMAGE_TILING_OPTIMAL,
-	    .usage = image_usage,
-	};
-
-	// Out->pNext
-	VkExternalImageFormatProperties external_format_properties = {
-	    .sType = VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES,
-	};
-
-	// Out
-	VkImageFormatProperties2 format_properties = {
-	    .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2,
-	    .pNext = &external_format_properties,
-	};
-
-	VkResult ret =
-	    vk->vkGetPhysicalDeviceImageFormatProperties2(vk->physical_device, &format_info, &format_properties);
-	if (ret != VK_SUCCESS) {
-		VK_ERROR(vk, "vkGetPhysicalDeviceImageFormatProperties2: %s", vk_result_string(ret));
-		if (out_importable) {
-			*out_importable = false;
+	uint64_t selected_modifier = 0;
+	const uint64_t *modifier = NULL;
+	VkExternalMemoryFeatureFlags features = 0;
+	if (drm_modifier && drm_modifier->valid) {
+		if (!vk->has_EXT_image_drm_format_modifier) {
+			goto done;
 		}
-		if (out_exportable) {
-			*out_exportable = false;
+		modifier = &drm_modifier->value;
+	} else if (drm_modifier == NULL && vk_csci_use_drm_modifiers(vk)) {
+		if (!vk_csci_get_drm_modifier(vk, image_format, bits, &selected_modifier)) {
+			goto done;
 		}
-		return;
+		modifier = &selected_modifier;
 	}
-
-	VkExternalMemoryFeatureFlags features =
-	    external_format_properties.externalMemoryProperties.externalMemoryFeatures;
-
+	VkResult ret = query_external_image(vk, image_format, bits, handle_type, modifier, &features);
+	if (ret != VK_SUCCESS && ret != VK_ERROR_FORMAT_NOT_SUPPORTED) {
+		VK_ERROR(vk, "External image query: %s", vk_result_string(ret));
+	}
+ done:
 	if (out_importable) {
 		*out_importable = (features & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT) != 0;
 	}
@@ -389,61 +467,9 @@ vk_csci_is_format_supported(struct vk_bundle *vk,
 	 * Check exportability.
 	 */
 
-	VkExternalMemoryHandleTypeFlags handle_type = vk_csci_get_image_external_handle_type(vk, NULL);
-	VkResult ret;
-
-	VkImageUsageFlags usage = vk_csci_get_image_usage_flags(vk, format, xbits);
-
-	// In->pNext
-	VkPhysicalDeviceExternalImageFormatInfo external_image_format_info = {
-	    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO,
-	    .handleType = handle_type,
-	};
-
-	// In
-	VkPhysicalDeviceImageFormatInfo2 format_info = {
-	    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
-	    .pNext = &external_image_format_info,
-	    .format = format,
-	    .type = VK_IMAGE_TYPE_2D,
-	    .tiling = VK_IMAGE_TILING_OPTIMAL,
-	    .usage = usage,
-	};
-
-	// Out->pNext
-	VkExternalImageFormatProperties external_format_properties = {
-	    .sType = VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES,
-	};
-
-	// Out
-	VkImageFormatProperties2 format_properties = {
-	    .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2,
-	    .pNext = &external_format_properties,
-	};
-
-	ret = vk->vkGetPhysicalDeviceImageFormatProperties2(vk->physical_device, &format_info, &format_properties);
-	if (ret == VK_ERROR_FORMAT_NOT_SUPPORTED) {
-		VK_DEBUG(vk, "Format '%s' as external image is not supported!", vk_format_string(format));
-		return false;
-	} else if (ret != VK_SUCCESS) {
-		// This is not a expected path.
-		VK_ERROR(vk, "vkGetPhysicalDeviceImageFormatProperties2: %s for format '%s'", vk_result_string(ret),
-		         vk_format_string(format));
-		return false;
-	}
-
-	VkExternalMemoryFeatureFlags features =
-	    external_format_properties.externalMemoryProperties.externalMemoryFeatures;
-
-	if ((features & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT) == 0) {
-		VK_DEBUG(vk, "Format '%s' is not importable!", vk_format_string(format));
-		return false;
-	}
-
-	if ((features & VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT) == 0) {
-		VK_DEBUG(vk, "Format '%s' is not exportable!", vk_format_string(format));
-		return false;
-	}
-
-	return true;
+	bool importable = false, exportable = false;
+	vk_csci_get_image_external_support(vk, format, xbits,
+	                                   vk_csci_get_image_external_handle_type(vk, NULL),
+	                                   NULL, &importable, &exportable);
+	return importable && exportable;
 }

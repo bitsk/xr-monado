@@ -85,8 +85,7 @@ ipc_handle_swapchain_create(volatile struct ipc_client_state *ics,
                             const struct xrt_swapchain_create_info *info,
                             uint32_t *out_id,
                             uint32_t *out_image_count,
-                            uint64_t *out_size,
-                            bool *out_use_dedicated_allocation,
+                            struct ipc_swapchain_image_metadata *out_metadata,
                             uint32_t max_handle_capacity,
                             xrt_graphics_buffer_handle_t *out_handles,
                             uint32_t *out_handle_count)
@@ -128,14 +127,11 @@ ipc_handle_swapchain_create(volatile struct ipc_client_state *ics,
 	assert(xsc->image_count <= XRT_MAX_SWAPCHAIN_IMAGES);
 	assert(xsc->image_count <= max_handle_capacity);
 
-	for (size_t i = 1; i < xsc->image_count; i++) {
-		assert(xscn->images[0].size == xscn->images[i].size);
-		assert(xscn->images[0].use_dedicated_allocation == xscn->images[i].use_dedicated_allocation);
+	for (size_t i = 0; i < xsc->image_count; i++) {
+		out_metadata->sizes[i] = xscn->images[i].size;
+		out_metadata->use_dedicated_allocation[i] = xscn->images[i].use_dedicated_allocation;
+		out_metadata->drm_modifiers[i] = xscn->images[i].drm_modifier;
 	}
-
-	// Assuming all images allocated in the same swapchain have the same allocation requirements.
-	*out_size = xscn->images[0].size;
-	*out_use_dedicated_allocation = xscn->images[0].use_dedicated_allocation;
 	*out_id = index;
 	*out_image_count = xsc->image_count;
 
@@ -151,7 +147,7 @@ ipc_handle_swapchain_create(volatile struct ipc_client_state *ics,
 xrt_result_t
 ipc_handle_swapchain_import(volatile struct ipc_client_state *ics,
                             const struct xrt_swapchain_create_info *info,
-                            const struct ipc_arg_swapchain_from_native *args,
+                            const struct ipc_swapchain_image_metadata *args,
                             uint32_t *out_id,
                             const xrt_graphics_buffer_handle_t *handles,
                             uint32_t handle_count)
@@ -170,6 +166,8 @@ ipc_handle_swapchain_import(volatile struct ipc_client_state *ics,
 	for (uint32_t i = 0; i < handle_count; i++) {
 		xins[i].handle = handles[i];
 		xins[i].size = args->sizes[i];
+		xins[i].use_dedicated_allocation = args->use_dedicated_allocation[i];
+		xins[i].drm_modifier = args->drm_modifiers[i];
 #if defined(XRT_GRAPHICS_BUFFER_HANDLE_IS_WIN32_HANDLE)
 		// DXGI handles need to be dealt with differently, they are identified
 		// by having their lower bit set to 1 during transfer

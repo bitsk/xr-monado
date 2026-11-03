@@ -269,16 +269,14 @@ swapchain_server_create(struct ipc_client_compositor *icc,
 	xrt_result_t xret;
 	uint32_t handle;
 	uint32_t image_count;
-	uint64_t size;
-	bool use_dedicated_allocation;
+	struct ipc_swapchain_image_metadata metadata = {0};
 
 	xret = ipc_call_swapchain_create( //
 	    icc->ipc_c,                   // connection
 	    info,                         // in
 	    &handle,                      // out
 	    &image_count,                 // out
-	    &size,                        // out
-	    &use_dedicated_allocation,    // out
+	    &metadata,                    // out
 	    remote_handles,               // handles
 	    XRT_MAX_SWAPCHAIN_IMAGES);    // handles
 	if (xret == XRT_ERROR_SWAPCHAIN_FLAG_VALID_BUT_UNSUPPORTED) {
@@ -301,8 +299,9 @@ swapchain_server_create(struct ipc_client_compositor *icc,
 
 	for (uint32_t i = 0; i < image_count; i++) {
 		ics->base.images[i].handle = remote_handles[i];
-		ics->base.images[i].size = size;
-		ics->base.images[i].use_dedicated_allocation = use_dedicated_allocation;
+		ics->base.images[i].size = metadata.sizes[i];
+		ics->base.images[i].use_dedicated_allocation = metadata.use_dedicated_allocation[i];
+		ics->base.images[i].drm_modifier = metadata.drm_modifiers[i];
 	}
 
 	*out_xsc = &ics->base.base;
@@ -317,7 +316,7 @@ swapchain_server_import(struct ipc_client_compositor *icc,
                         uint32_t image_count,
                         struct xrt_swapchain **out_xsc)
 {
-	struct ipc_arg_swapchain_from_native args = {0};
+	struct ipc_swapchain_image_metadata args = {0};
 	xrt_graphics_buffer_handle_t handles[XRT_MAX_SWAPCHAIN_IMAGES] = {0};
 	xrt_result_t xret;
 	uint32_t id = 0;
@@ -325,6 +324,8 @@ swapchain_server_import(struct ipc_client_compositor *icc,
 	for (uint32_t i = 0; i < image_count; i++) {
 		handles[i] = native_images[i].handle;
 		args.sizes[i] = native_images[i].size;
+		args.use_dedicated_allocation[i] = native_images[i].use_dedicated_allocation;
+		args.drm_modifiers[i] = native_images[i].drm_modifier;
 
 #if defined(XRT_GRAPHICS_BUFFER_HANDLE_IS_WIN32_HANDLE)
 		// DXGI handles need to be dealt with differently, they are identified
