@@ -119,9 +119,13 @@
 /*!
  * Builders
  */
+#ifdef XRT_BUILD_DRIVER_A081
 struct xrt_builder *t_builder_a081_create(void);
+#endif
 xrt_builder_create_func_t target_builder_list[] = {
+#ifdef XRT_BUILD_DRIVER_A081
     t_builder_a081_create,
+#endif
 #ifdef T_BUILDER_QWERTY // High up to override any real hardware.
     t_builder_qwerty_create,
 #endif // T_BUILDER_QWERTY

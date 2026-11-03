@@ -337,6 +337,7 @@ option_with_deps(XRT_HAVE_OPENVR "Enable OpenVR support" DEPENDS OPENVR_FOUND)
 option_with_deps(XRT_BUILD_DRIVER_UVC "Enable userspace UVC driver" DEPENDS XRT_HAVE_LIBUSB)
 
 # Drivers to build (sorted)
+option(XRT_BUILD_DRIVER_A081 "Enable A081 platform support" ON)
 option_with_deps(XRT_BUILD_DRIVER_ANDROID "Enable Android sensors driver" DEPENDS ANDROID)
 option_with_deps(XRT_BUILD_DRIVER_ARDUINO "Enable Arduino input device with BLE" DEPENDS XRT_HAVE_DBUS)
 option_with_deps(XRT_BUILD_DRIVER_BLUBUR_S1 "Enable 3Glasses Blubur S1 device driver" DEPENDS XRT_HAVE_INTERNAL_HID)
@@ -453,6 +454,7 @@ option(XRT_FEATURE_OPENXR_SPACE_UNBOUNDED "Enable XR_MSFT_unbounded_reference_sp
 list(
 	APPEND
 	AVAILABLE_DRIVERS
+	"A081"
 	"ANDROID"
 	"ARDUINO"
 	"BLUBUR_S1"
