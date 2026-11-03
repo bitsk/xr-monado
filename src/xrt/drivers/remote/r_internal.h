@@ -49,6 +49,8 @@ struct r_hub
 	//! Incoming connection socket.
 	r_socket_t accept_fd;
 
+	//! IPv4 listener address in network byte order.
+	uint32_t bind_address;
 	uint16_t port;
 	uint32_t view_count;
 
