@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: xr-monado
+Source: https://gitee.com/bigbits/xr-monado
+
+Files: *
+Copyright: See original source file and license notices
+License: BSL-1.0
+ See the repository license files and individual file headers.
+ Third-party notices and licenses remain applicable.

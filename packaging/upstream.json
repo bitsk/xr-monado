@@ -1,0 +1,5 @@
+{
+  "repository": "https://gitlab.freedesktop.org/monado/monado.git",
+  "commit": "d0e85c8a4630b7da99ffec190b9f50956bc11969",
+  "scope": "A081 SteamVR driver; OpenXR backend requires separate build and device validation"
+}

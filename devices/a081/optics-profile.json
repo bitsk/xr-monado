@@ -1,0 +1,46 @@
+{
+  "format": "a081-stock-optics-profile-v1",
+  "stock_config_sha256": "00dfabfd663dfa46a00d78dab2b134be89e23410a28a7f49da34549529151145",
+  "device": "iQIYI XR MIX A081",
+  "sources": {
+    "/workspace/xr/build/xr-openxr-research-r1/stock/system/etc/qvr/svrapi_config.txt": "00dfabfd663dfa46a00d78dab2b134be89e23410a28a7f49da34549529151145",
+    "/workspace/runtime/src/xrt/targets/vr700_sxrapi/third_party/sxrapi/private/svrApiCore.cpp": "3b1b823b583a784870c1c280248701dd57285b2ff2e649c831b6abd26d07e6d8",
+    "/workspace/runtime/src/xrt/targets/vr700_sxrapi/third_party/sxrapi/private/svrApiTimeWarp.cpp": "caa5478b79750d7da6b92891adf4a1832a529fb8a16c3da9038f1eb80b1a5cea",
+    "/workspace/runtime/src/xrt/drivers/vr700/vr700_config.c": "3d7da09ac8000a89157129bf47d6b04ac04b7879fc5e0ce4c7f0d4efff6b7efa",
+    "/workspace/runtime/src/xrt/drivers/vr700/vr700_hmd.c": "bd90d6a0005d09fd10c2fc21a17bd85c9fa766fa978d309938cdbf27cdf973a0"
+  },
+  "eye_pixels": [
+    1832,
+    1920
+  ],
+  "panel_pixels": [
+    1920,
+    3664
+  ],
+  "display_fov_degrees": [
+    92.94759148677448,
+    99.22701423685496
+  ],
+  "nominal_ipd_m": 0.0634,
+  "polynomial_even": [
+    1,
+    0.218861984,
+    -0.026857263,
+    0.178005457
+  ],
+  "rgb_scale": [
+    0.9965,
+    1,
+    1.004
+  ],
+  "mesh_position_scale": [
+    1.3691983543033375,
+    1.452308472856418
+  ],
+  "mapping": "Rotate panel UV once in existing OpenVR adapter; x=2u-1,y=2v-1; r2=x*x+(1920/1832*y)^2; RGB UV=0.5+0.5*(x/sx,y/sy)*P(r2)*rgb_scale. Outside-image UV is retained.",
+  "basis": "SXR reference GenerateWarpCoords samplePoint branch, InitializeWarpMesh and Core FrustumDisplay scaling; A081 zero lens offsets, gLensInverse=false, default gLensPolyUseXYZ=false. Display FOV is used, not *_mesh FOV.",
+  "android_monado": "Identity distortion is intentional when SXR performs optical correction downstream. SteamVR direct scanout requires its own optical mapping.",
+  "physical_optics_verified": false,
+  "stock_binary_equivalence_verified": false,
+  "wearer_ipd_measured": false
+}
