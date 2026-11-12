@@ -1,3 +1,9 @@
+monado-xr (25.0.0+xr4) unstable; urgency=medium
+
+  * Switch a stable logical input pair between OEM controllers and optical hands.
+
+ -- bits <bigbits@hackx.cc>  Thu, 12 Nov 2026 16:42:54 +0800
+
 monado-xr (25.0.0+xr3) unstable; urgency=medium
 
   * Publish measured optical hand skeletons to the native OpenXR runtime.

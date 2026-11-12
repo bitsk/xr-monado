@@ -18,3 +18,5 @@ target_link_libraries(
 
 find_package(XRHand CONFIG REQUIRED)
 target_link_libraries(st_ovrd PRIVATE XRHand::api)
+
+target_link_libraries(st_ovrd PRIVATE aux_util xrt-external-cjson)

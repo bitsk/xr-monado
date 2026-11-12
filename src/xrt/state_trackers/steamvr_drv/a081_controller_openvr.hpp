@@ -23,6 +23,7 @@ class A081ControllerPosePair {
         a081_controller_pose_packet packet{};
         uint64_t received_ns = 0;
     };
+public:
     struct Inputs {
         bool face0_click, face0_touch, face1_click, face1_touch, system_click, joystick_click, joystick_touch;
         float joystick_x, joystick_y, trigger_value;
@@ -30,6 +31,7 @@ class A081ControllerPosePair {
         float grip_value;
         bool grip_touch;
     };
+private:
     // Vendor bits in a081_controller_pose_packet.controls, from right-hand
     // presses; face0 is A/X, face1 B/Y. Full travel is index 9, middle 10.
     static constexpr uint32_t button_face0 = 0x10, button_face1 = 0x20, button_system = 0x40, button_joystick = 0x80;
@@ -140,7 +142,7 @@ class A081ControllerPosePair {
 public:
     A081ControllerPosePair() : left(*this, 0), right(*this, 1) {}
     ~A081ControllerPosePair() { close_source(); }
-    bool configure(bool a081_head)
+    bool configure(bool a081_head, bool register_devices = true)
     {
         const char *requested = std::getenv("A081_CONTROLLER_POSE_SOCKET");
         if (!requested || !*requested) return true; // baseline HMD-only path
@@ -153,6 +155,7 @@ public:
         }
         std::strcpy(path, requested);
         enabled = true;
+        if (!register_devices) return true;
         bool added_left = vr::VRServerDriverHost()->TrackedDeviceAdded(left.serial(), vr::TrackedDeviceClass_Controller, &left);
         bool added_right = vr::VRServerDriverHost()->TrackedDeviceAdded(right.serial(), vr::TrackedDeviceClass_Controller, &right);
         if (!added_left || !added_right) {
@@ -162,7 +165,7 @@ public:
         ovrd_log("A081 controllers registered as oculus_touch: Nordic controls, SDK pose; haptics not implemented\n");
         return true;
     }
-    void frame()
+    void frame(bool publish_devices = true)
     {
         if (!enabled) return;
         uint64_t now = os_monotonic_get_ns();
@@ -180,7 +183,7 @@ public:
                 }
             }
         }
-        left.publish(); right.publish();
+        if (publish_devices) { left.publish(); right.publish(); }
     }
     void cleanup()
     {
@@ -214,6 +217,7 @@ private:
         fd = candidate;
         ovrd_log("A081 controller pose connected to root relay\n");
     }
+public:
     Inputs inputs(unsigned hand)
     {
         Inputs v{};
@@ -251,6 +255,7 @@ private:
         }
         return v;
     }
+private:
     bool consume(const a081_controller_pose_packet &p, uint64_t now)
     {
         const bool v2 = p.version == 2;
@@ -273,6 +278,7 @@ private:
         s.packet = p; s.received_ns = now;
         return true;
     }
+public:
     vr::DriverPose_t pose(unsigned hand)
     {
         vr::DriverPose_t out{};
@@ -304,6 +310,7 @@ private:
         out.qRotation = {p.orientation_xyzw[3], p.orientation_xyzw[0], p.orientation_xyzw[1], p.orientation_xyzw[2]};
         return out;
     }
+private:
     Device left, right;
     std::mutex mutex;
     Sample samples[2]{};
