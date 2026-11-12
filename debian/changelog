@@ -1,3 +1,9 @@
+monado-xr (25.0.0+xr5) unstable; urgency=medium
+
+  * Package the original app-scoped compatibility layers from their canonical source.
+
+ -- bits <bigbits@hackx.cc>  Thu, 12 Nov 2026 19:50:08 +0800
+
 monado-xr (25.0.0+xr4) unstable; urgency=medium
 
   * Switch a stable logical input pair between OEM controllers and optical hands.

@@ -2,7 +2,7 @@ Source: monado-xr
 Section: misc
 Priority: optional
 Maintainer: openKylin XR SIG <xr@lists.openkylin.top>
-Build-Depends: debhelper-compat (= 13), cmake, ninja-build, g++, pkg-config, libeigen3-dev, glslang-tools, libudev-dev, libxr-head-dev (>= 0.1.1), libxr-controller-dev (>= 0.1.1), libxr-hand-dev (>= 0.1.1)
+Build-Depends: debhelper-compat (= 13), cmake, ninja-build, g++, pkg-config, libvulkan-dev, libeigen3-dev, glslang-tools, libudev-dev, libxr-head-dev (>= 0.1.1), libxr-controller-dev (>= 0.1.1), libxr-hand-dev (>= 0.1.1)
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 Vcs-Git: https://github.com/bitsk/xr-monado.git
@@ -13,3 +13,10 @@ Architecture: arm64
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Description: Independent A081 SteamVR provider
  Independently maintained XR component for openKylin integration.
+
+Package: xr-native-interop
+Architecture: arm64
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: Explicit app scoped Vulkan and OpenXR compatibility layers
+ Provides the independently built shared-image and lifecycle adaptations.
+ Activation is per application; installation does not enable global layers.

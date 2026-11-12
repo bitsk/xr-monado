@@ -769,3 +769,5 @@ if(XRT_MODULE_COMPOSITOR_MAIN AND NOT XRT_SILENCE_CMAKE_LAYER_ERRORS)
 			)
 	endif()
 endif()
+
+add_subdirectory(compat/native-interop)
