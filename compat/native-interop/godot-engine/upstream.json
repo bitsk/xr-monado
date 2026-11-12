@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/godotengine/godot.git",
+  "commit": "ed1daf0bf001b61586d9930840f2f1394092c079",
+  "archive_sha256": "04a5a4d7acbd1dc1fe6934ca02515dbb4aa5f8f2cb6312c10843e3b8d6b397ad",
+  "tag": "4.7.2-stable",
+  "archive_url": "https://api.github.com/repos/godotengine/godot/tarball/ed1daf0bf001b61586d9930840f2f1394092c079",
+  "patches": [
+    {
+      "file": "patches/godot-cleanup.patch",
+      "sha256": "d59cda38bdd42af6dae6da8c79e06937e0b66c417cce43d9533e49db148b8807"
+    },
+    {
+      "file": "patches/godot-headset-only.patch",
+      "sha256": "038f186ea28d267bc05f5dd0ac4693f2d3398a2c99ea412fcb1fe4f5bfe700bf"
+    }
+  ],
+  "target": "linuxbsd-arm64-template_release",
+  "default_headset_only": false,
+  "validated_window_system": "X11"
+}

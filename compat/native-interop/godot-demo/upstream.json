@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/godotengine/godot-demo-projects.git",
+  "commit": "b761b4cd5718a7118f2c95eb55f181d0a5f004f1",
+  "path": "xr/openxr_origin_centric_movement",
+  "engine": "4.7.2-stable",
+  "engine_arm64_url": "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.arm64.zip",
+  "engine_arm64_binary_sha512": "94a1da19f9a08b02f36061ab431173914cf502d76508fa6295dfe04c49bf0e0e53d44332a819c576fd8dad20dc4cdf3d9c21757411c07dac6edf259f4a7709f4",
+  "patch_sha256": "ac43cc8e423c5ad99b2ab6f97eb153341be7cacbd24fe4275df60df3637ea6ee",
+  "control_path_placeholder": "@QIYU_NATIVE_CONTROL@",
+  "default_scale": 1.0,
+  "default_ffr": false,
+  "default_subsampled": false,
+  "calibrated_physical_tracking": false,
+  "patched_engine": "../godot-engine/upstream.json",
+  "default_headset_only": true
+}

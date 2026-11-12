@@ -1,0 +1,72 @@
+{
+  "format": "qiyu-gamescope-source-v1",
+  "repository": "https://github.com/ValveSoftware/gamescope",
+  "commit": "ea3579ed612151eaa005d526a2533e8932854f58",
+  "version": "3.16.28-43-gea3579ed",
+  "archive": "gamescope-actual.tar.gz",
+  "archive_sha256": "b848cc5f9f0ced519c17b0ac5fa12810e10f7b805bbb899f70d315f36e05b26d",
+  "dependencies": [
+    {
+      "path": "src/reshade",
+      "repository": "https://github.com/Joshua-Ashton/reshade",
+      "commit": "696b14cd6006ae9ca174e6164450619ace043283",
+      "archive_sha256": "b8dc4ab71417298ef15354acaf154430756c4b3506b3cf5c8f2b47ade3619637",
+      "archive": "reshade.tar.gz"
+    },
+    {
+      "path": "subprojects/openvr",
+      "repository": "https://github.com/ValveSoftware/openvr",
+      "commit": "ff87f683f41fe26cc9353dd9d9d7028357fd8e1a",
+      "archive_sha256": "12a745ca832458a80c2a83a8679ec24e834dceba14ffb4d47ef6e1428ea1fadb",
+      "archive": "openvr.tar.gz"
+    },
+    {
+      "path": "subprojects/wlroots",
+      "repository": "https://gitlab.freedesktop.org/wlroots/wlroots",
+      "commit": "d783533489e1f75d6886c2ab5c5960090ef268f8",
+      "archive_sha256": "d4d7c5f4ff5729d5eff33859b58ab7ced812aca54367b75ecbdaf9aae448fff6",
+      "archive": "wlroots.tar.gz"
+    },
+    {
+      "path": "thirdparty/SPIRV-Headers",
+      "repository": "https://github.com/KhronosGroup/SPIRV-Headers",
+      "commit": "d790ced752b5bfc06b6988baadef6eb2d16bdf96",
+      "archive_sha256": "d8f419e54c30be6b82fa200e8e86e1e5532b5a680b65fcc814f26e28f0d2002d",
+      "archive": "SPIRV-Headers.tar.gz"
+    },
+    {
+      "path": "subprojects/glm",
+      "repository": "https://github.com/g-truc/glm",
+      "commit": "0af55ccecd98d4e5a8d1fad7de25ba429d60e863",
+      "archive_sha256": "c790ec09be74ee7336f4abea958e7cddad4308338fcd97c8de322f9d581cdd78",
+      "archive": "glm.tar.gz"
+    },
+    {
+      "path": "subprojects/stb",
+      "repository": "https://github.com/nothings/stb",
+      "commit": "5736b15f7ea0ffb08dd38af21067c314d6a3aae9",
+      "archive_sha256": "0106b7acfefb3d43429e37512a39a95dd218b386408b7f36a928ac92e60e93bf",
+      "archive": "stb.tar.gz"
+    },
+    {
+      "path": "subprojects/libdisplay-info",
+      "repository": "https://gitlab.freedesktop.org/emersion/libdisplay-info",
+      "commit": "c67a3e9bedb05ab61c7443704a1a107e76254595",
+      "archive_sha256": "34f2109f3ba5a56f4e12062210261c98214f32b5568684311aa029da518bf2fd",
+      "archive": "libdisplay-info.tar.gz"
+    },
+    {
+      "path": "subprojects/libliftoff",
+      "repository": "https://gitlab.freedesktop.org/emersion/libliftoff",
+      "commit": "8b08dc1c14fd019cc90ddabe34ad16596b0691f4",
+      "archive_sha256": "8de28aee6f90f47b7fc7037dcd2360166197c0b5d2033f3afdbd34f2ea1bf216",
+      "archive": "libliftoff.tar.gz"
+    }
+  ],
+  "patches": [
+    {
+      "path": "patches/0001-openvr-defer-feature-notifications.patch",
+      "sha256": "a53d2ced05ea0f803c5f85ae3edea552d179f3c3d125cb68a0af364de1c46c67"
+    }
+  ]
+}

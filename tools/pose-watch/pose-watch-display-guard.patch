@@ -1,0 +1,39 @@
+--- a/pose-watch.cpp
++++ b/pose-watch.cpp
+@@ -17,6 +17,7 @@
+ #include <sys/stat.h>
+ #include <time.h>
+ #include <unistd.h>
++#include "tracking-display-guard.hpp"
+ 
+ #if !defined(__aarch64__)
+ #error This diagnostic must be built for native AArch64 Linux.
+@@ -91,6 +92,13 @@
+                 identity, tracking, device_model, serial);
+     if (!identity) return finish(5);
+ 
++    const char *guard_setting = std::getenv("QIYU_TRACKING_RECOVERY_DISPLAY_GUARD");
++    const bool guard_requested = guard_setting && !std::strcmp(guard_setting, "1");
++    auto *guard_compositor = guard_requested ?
++        static_cast<vr::IVRCompositor *>(get(vr::IVRCompositor_Version, &error)) : nullptr;
++    if (guard_requested && (!guard_compositor || error != vr::VRInitError_None)) return finish(4);
++    A081TrackingDisplayGuard display_guard(guard_compositor);
++
+     const char *done_marker = argv[2];
+     const int64_t begin = monotonic_ns();
+     unsigned samples = 0, accepted = 0, nonfinite = 0, invalid_after_stop = 0, valid_after_stop = 0;
+@@ -105,6 +113,7 @@
+         bool finite = true;
+         for (const auto &row : pose.mDeviceToAbsoluteTracking.m)
+             for (float value : row) finite &= std::isfinite(value);
++        display_guard.update(pose, finite, now);
+         bool valid = pose.bDeviceIsConnected && pose.bPoseIsValid && finite &&
+                      pose.eTrackingResult == vr::TrackingResult_Running_OK;
+         ++samples;
+@@ -135,5 +144,6 @@
+     std::printf("A081_QVR_OPENVR_RESULT samples=%u accepted_before_stop=%u nonfinite=%u invalid_after_stop=%u valid_after_stop=%u "
+                 "compositor_permitted=true clock_error=%d prediction=runtime_requested_zero accuracy_calibrated=false physical_motion_accepted=false pass=%d\n",
+                 samples, accepted, nonfinite, invalid_after_stop, valid_after_stop, clock_error, pass);
++    display_guard.close();
+     return finish(pass ? 0 : 8);
+ }

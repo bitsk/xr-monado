@@ -1,0 +1,97 @@
+--- a/modules/openxr/openxr_api.cpp
++++ b/modules/openxr/openxr_api.cpp
+@@ -38,14 +38,11 @@
+ #include "core/config/project_settings.h"
+ #include "core/object/callable_mp.h"
+ #include "core/os/memory.h"
++#include "core/os/os.h"
+ #include "core/profiling/profiling.h"
+ #include "core/version.h"
+ #include "servers/rendering/rendering_server.h"
+ #include "servers/rendering/rendering_server_globals.h"
+-
+-#ifdef ANDROID_ENABLED
+-#include "core/os/os.h"
+-#endif
+ 
+ #include "openxr_platform_inc.h" // IWYU pragma: keep.
+ 
+@@ -1375,7 +1372,51 @@
+ 
+ 	if (running) {
+ 		if (session != XR_NULL_HANDLE) {
+-			xrEndSession(session);
++			// Shutdown can begin while the runtime still has us focused. Request
++			// exit and wait for the runtime's STOPPING event before ending it.
++			// Do not dispatch normal event callbacks into the interface being freed.
++			if (session_state != XR_SESSION_STATE_STOPPING) {
++				PFN_xrRequestExitSession request_exit = nullptr;
++				XrResult result = xrGetInstanceProcAddr(instance, "xrRequestExitSession", reinterpret_cast<PFN_xrVoidFunction *>(&request_exit));
++				if (XR_SUCCEEDED(result) && request_exit) {
++					result = request_exit(session);
++				}
++				if (XR_SUCCEEDED(result) && request_exit) {
++					print_verbose("OpenXR: requested session exit before teardown");
++					const uint64_t deadline = OS::get_singleton()->get_ticks_usec() + 500000;
++					while (session_state != XR_SESSION_STATE_STOPPING && OS::get_singleton()->get_ticks_usec() < deadline) {
++						XrEventDataBuffer event = { XR_TYPE_EVENT_DATA_BUFFER };
++						result = xrPollEvent(instance, &event);
++						if (result == XR_EVENT_UNAVAILABLE) {
++							OS::get_singleton()->delay_usec(1000);
++							continue;
++						}
++						if (XR_FAILED(result)) {
++							ERR_PRINT(vformat("OpenXR: polling during teardown failed: %s", get_error_string(result)));
++							break;
++						}
++						if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
++							const XrEventDataSessionStateChanged *changed = reinterpret_cast<const XrEventDataSessionStateChanged *>(&event);
++							if (changed->session == session) {
++								session_state = changed->state;
++							}
++						}
++						if (session_state == XR_SESSION_STATE_EXITING || session_state == XR_SESSION_STATE_LOSS_PENDING) {
++							break;
++						}
++					}
++				} else {
++					ERR_PRINT(vformat("OpenXR: requesting session exit failed: %s", get_error_string(result)));
++				}
++			}
++			if (session_state == XR_SESSION_STATE_STOPPING) {
++				XrResult result = xrEndSession(session);
++				if (XR_FAILED(result)) {
++					ERR_PRINT(vformat("OpenXR: ending stopped session failed: %s", get_error_string(result)));
++				}
++			} else {
++				WARN_PRINT("OpenXR: STOPPING was not received before teardown; destroying the session without xrEndSession.");
++			}
+ 		}
+ 
+ 		running = false;
+--- a/modules/openxr/openxr_interface.cpp
++++ b/modules/openxr/openxr_interface.cpp
+@@ -375,8 +375,8 @@
+ 				openxr_api->interaction_profile_suggest_bindings(ip);
+ 
+ 				// And record it in our array so we can clean it up later on
+-				if (interaction_profile_array.has(ip)) {
+-					interaction_profile_array.push_back(ip);
++				if (!interaction_profiles.has(ip)) {
++					interaction_profiles.push_back(ip);
+ 				}
+ 			}
+ 		}
+--- a/modules/openxr/extensions/spatial_entities/openxr_spatial_marker_tracking.cpp
++++ b/modules/openxr/extensions/spatial_entities/openxr_spatial_marker_tracking.cpp
+@@ -512,7 +512,9 @@
+ 		spatial_context = RID();
+ 	}
+ 
+-	se_extension->disconnect(SNAME("spatial_discovery_recommended"), callable_mp(this, &OpenXRSpatialMarkerTrackingCapability::_on_spatial_discovery_recommended));
++	if (spatial_marker_tracking_ext) {
++		se_extension->disconnect(SNAME("spatial_discovery_recommended"), callable_mp(this, &OpenXRSpatialMarkerTrackingCapability::_on_spatial_discovery_recommended));
++	}
+ }
+ 
+ void OpenXRSpatialMarkerTrackingCapability::on_process() {

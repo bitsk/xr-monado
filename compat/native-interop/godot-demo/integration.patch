@@ -1,0 +1,152 @@
+--- a/project.godot
++++ b/project.godot
+@@ -13,7 +13,7 @@
+ config/name="OpenXR Origin Centric Movement"
+ config/tags=PackedStringArray("demo", "official", "xr")
+ run/main_scene="res://main.tscn"
+-config/features=PackedStringArray("4.7", "GL Compatibility")
++config/features=PackedStringArray("4.7", "Mobile")
+ config/icon="res://icon.svg"
+ 
+ [debug]
+@@ -22,13 +22,19 @@
+ 
+ [rendering]
+ 
+-renderer/rendering_method="gl_compatibility"
+-renderer/rendering_method.mobile="gl_compatibility"
++renderer/rendering_method="mobile"
++renderer/rendering_method.mobile="mobile"
+ textures/vram_compression/import_etc2_astc=true
+ 
+ [xr]
+ 
+ openxr/enabled=true
++openxr/headset_only=true
+-openxr/foveation_level=3
+-openxr/foveation_dynamic=true
++openxr/foveation_level=0
++openxr/foveation_dynamic=false
++openxr/foveation_with_subsampled_images=false
+ shaders/enabled=true
++
++[autoload]
++
++TrialTelemetry="*res://trial_telemetry.gd"
+--- a/start_vr.gd
++++ b/start_vr.gd
+@@ -31,9 +31,9 @@
+ 		# Make sure V-Sync is off, as V-Sync is handled by OpenXR.
+ 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+ 
+-		# Enable variable rate shading.
++		# Keep foveation disabled unless the explicit trial control enables it.
+ 		if RenderingServer.get_rendering_device():
+-			vp.vrs_mode = Viewport.VRS_XR
++			vp.vrs_mode = Viewport.VRS_DISABLED
+ 		elif int(ProjectSettings.get_setting("xr/openxr/foveation_level")) == 0:
+ 			push_warning("OpenXR: Recommend setting Foveation level to High in Project Settings")
+ 
+@@ -79,7 +79,8 @@
+ 
+ 	# Now match our physics rate. This is currently needed to avoid jittering,
+ 	# due to physics interpolation not being used.
+-	Engine.physics_ticks_per_second = roundi(current_refresh_rate)
++	if current_refresh_rate > 0:
++		Engine.physics_ticks_per_second = roundi(current_refresh_rate)
+ 
+ 	session_started.emit()
+ 
+--- a/player.gd
++++ b/player.gd
+@@ -144,7 +144,7 @@
+ 			character_body.velocity.z = move_toward(character_body.velocity.z, 0, delta * movement_acceleration)
+ 
+ 	# Always handle gravity.
+-	character_body.velocity += get_gravity() * delta
++	character_body.velocity += character_body.get_gravity() * delta
+ 
+ 	# Attempt to move our player.
+ 	character_body.move_and_slide()
+--- a/trial_telemetry.gd
++++ b/trial_telemetry.gd
+@@ -0,0 +1,79 @@
++extends Node
++const CONTROL_PATH = "@QIYU_NATIVE_CONTROL@"
++var elapsed: float = 0.0
++var report_elapsed: float = 0.0
++var viewport: Viewport
++var xr: OpenXRInterface
++var frame_count: int = 0
++var settings: Dictionary = {}
++var serial: int = -1
++var phase: String = "warmup"
++var adaptive: bool = false
++var average_gpu: float = 0.0
++var over_count: int = 0
++var under_count: int = 0
++var changed_at: float = 0.0
++var motion_begin: float = 0.0
++var origin: XROrigin3D
++var initial_yaw: float = 0.0
++func _ready() -> void:
++ process_mode = Node.PROCESS_MODE_ALWAYS
++ viewport = get_viewport()
++ xr = XRServer.find_interface("OpenXR")
++ RenderingServer.viewport_set_measure_render_time(viewport.get_viewport_rid(), true)
++ print("QIYU_DEMO_START ", JSON.stringify({"engine": Engine.get_version_info(), "rendering": RenderingServer.get_current_rendering_method(), "rd_device": RenderingServer.get_video_adapter_name(), "xr_initialized": xr.is_initialized(), "foveation_supported": xr.is_foveation_supported(), "subsampled": xr.foveation_with_subsampled_images}))
++func _process(delta: float) -> void:
++ elapsed += delta
++ report_elapsed += delta
++ frame_count += 1
++ if origin == null and get_tree().current_scene != null:
++  origin = get_tree().current_scene.get_node_or_null("XROrigin3D")
++  if origin != null: initial_yaw = origin.rotation.y
++ if origin != null:
++  var angle: float = 0.0
++  if bool(settings.get("motion", false)):
++   angle = deg_to_rad(10.0) * pow(sin((elapsed - motion_begin) * TAU / 4.0), 3)
++  origin.rotation.y = initial_yaw + angle
++ if report_elapsed >= 0.25:
++  var gpu_ms: float = RenderingServer.viewport_get_measured_render_time_gpu(viewport.get_viewport_rid())
++  var cpu_ms: float = RenderingServer.viewport_get_measured_render_time_cpu(viewport.get_viewport_rid())
++  if FileAccess.file_exists(CONTROL_PATH):
++   var next: Variant = JSON.parse_string(FileAccess.get_file_as_string(CONTROL_PATH))
++   if next is Dictionary and int(next.get("serial", -1)) != serial:
++    settings = next
++    serial = int(settings.get("serial", 0))
++    phase = str(settings.get("phase", "trial"))
++    adaptive = bool(settings.get("adaptive", false))
++    viewport.scaling_3d_scale = clampf(float(settings.get("scale", 1.0)), 0.65, 1.0)
++    var ffr: bool = bool(settings.get("ffr", false))
++    viewport.vrs_mode = Viewport.VRS_XR if ffr else Viewport.VRS_DISABLED
++    xr.foveation_with_subsampled_images = false
++    xr.foveation_dynamic = false
++    xr.foveation_level = 3 if ffr else 0
++    changed_at = elapsed
++    motion_begin = elapsed
++    over_count = 0
++    under_count = 0
++    average_gpu = gpu_ms
++    print("QIYU_DEMO_CONTROL ", JSON.stringify(settings))
++  if adaptive and gpu_ms > 0.0:
++   average_gpu = average_gpu * 0.75 + gpu_ms * 0.25
++   var target: float = clampf(float(settings.get("target_ms", 9.0)), 1.0, 15.0)
++   over_count = over_count + 1 if average_gpu > target * 1.10 else 0
++   under_count = under_count + 1 if average_gpu < target * 0.80 else 0
++   if elapsed - changed_at >= 1.0:
++    var scale: float = viewport.scaling_3d_scale
++    if over_count >= 3: scale = maxf(0.65, scale - 0.05)
++    elif under_count >= 8: scale = minf(1.0, scale + 0.05)
++    if not is_equal_approx(scale, viewport.scaling_3d_scale):
++     viewport.scaling_3d_scale = scale
++     changed_at = elapsed
++     over_count = 0
++     under_count = 0
++     print("QIYU_DRS_UPDATE ", JSON.stringify({"phase": phase, "scale": scale, "ewma_gpu_ms": average_gpu, "target_ms": target}))
++  var camera: Node3D = origin.get_node_or_null("XRCamera3D") if origin != null else null
++  print("QIYU_DEMO_SAMPLE ", JSON.stringify({"elapsed": elapsed, "frames": frame_count, "phase": phase, "serial": serial, "gpu_ms": gpu_ms, "cpu_ms": cpu_ms, "scale": viewport.scaling_3d_scale, "vrs_mode": viewport.vrs_mode, "xr_state": xr.get_session_state(), "target_size": str(xr.get_render_target_size()), "camera_transform": str(camera.global_transform) if camera != null else "", "foveation_level": xr.foveation_level, "subsampled": xr.foveation_with_subsampled_images}))
++  report_elapsed = 0.0
++ if bool(settings.get("quit", false)) or elapsed >= 240.0:
++  print("QIYU_DEMO_NORMAL_EXIT")
++  get_tree().quit()

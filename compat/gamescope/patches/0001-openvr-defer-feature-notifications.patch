@@ -1,0 +1,35 @@
+--- a/src/Backends/OpenVRBackend.cpp
++++ b/src/Backends/OpenVRBackend.cpp
+@@ -663,7 +663,10 @@
+ 
+             // Setup misc. stuff
+             g_nOutputRefresh = (int32_t) ConvertHztomHz( roundf( vr::VRSystem()->GetFloatTrackedDeviceProperty( vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_DisplayFrequency_Float ) ) );
+-            UpdateFeatures();
++            // Deferred initialization holds CDeferredBackend::m_mutInit exclusively.
++            // Notify Wayland clients after initialization so their control bind
++            // can take its read lock without inverting the Wayland lock order.
++            m_bFeaturesDirty = true;
+ 
+             m_bRunning = true;
+ 
+@@ -1002,10 +1005,11 @@
+             GetVBlankTimer().UpdateLastDrawTime( get_time_in_nanos() - g_SteamCompMgrVBlankTime.ulWakeupTime );
+ 
+             int32_t nNewRefreshRate = (int32_t) ConvertHztomHz( roundf( vr::VRSystem()->GetFloatTrackedDeviceProperty( vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_DisplayFrequency_Float ) ) );
+-            if ( g_nOutputRefresh != nNewRefreshRate )
++            if ( m_bFeaturesDirty || g_nOutputRefresh != nNewRefreshRate )
+             {
+                 g_nOutputRefresh = nNewRefreshRate;
+                 UpdateFeatures();
++                m_bFeaturesDirty = false;
+             }
+ 
+             PollState();
+@@ -1497,6 +1501,7 @@
+             wlserver_unlock();
+         }
+ 
++        bool m_bFeaturesDirty = false;
+         std::string m_szOverlayKey;
+         std::string m_szAppOverlayKey;
+         const char *m_pchOverlayName = nullptr;

@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "scope": "Exact openKylin root-marker addition to the existing production read-only pose observer",
+  "original_source": {
+    "path_hint": "steamos-mix/vr-shell-qvr-live/pose-watch.cpp",
+    "sha256": "fc5c981c0170560fd797f61103e7c1f017ff0c200ac13d3de3c177655f5e4e85",
+    "upstream_repository": "https://github.com/Producdevity/reframed-vr",
+    "upstream_reference_commit": "c08eb1907b85d727d950f645ffc2fcfa23324cc1",
+    "license_status": "Upstream does not declare a license for this source file; the full source remains an external local build input. This integration neither republishes nor relicenses it."
+  },
+  "patch": {
+    "path": "pose-watch-openkylin.patch",
+    "sha256": "56731d585bfc18ab6bfab186ab06f385833656eeee20f6a2605cda64f253a0dd",
+    "patched_source_sha256": "4cf5af77f935d812f052d5217754f072ba4b017cbcf45eef3d115b6149a4a259"
+  },
+  "compiler_template": {
+    "input_argument": "--compiler-manifest",
+    "field": "compiler_argv",
+    "sha256": "976d3f77e39dcf7da609676040e1b4423846e2fc65b5aa8727d71ba369fcc645",
+    "substitute_argv_indices": [
+      -3,
+      -1
+    ],
+    "substitutions": [
+      "patched local source path",
+      "new local binary path"
+    ],
+    "other_arguments_changed": false,
+    "role": "Compiler arguments only; measurement criteria stored in the diagnostic template do not replace pose-watch acceptance."
+  },
+  "openvr_sdk": {
+    "header_sha256": "1e6ed57199896cc1f7c5484e50fa18955e97be15be690beb28d998c877ead7fd",
+    "license_sha256": "f56ff606104d4ef18e617921a75c73ad73b5a1a1d70c69590c29de16919e04ad",
+    "license": "Original Valve BSD license retained alongside local build inputs; separate from the observer source license status."
+  },
+  "reference_binary": {
+    "sha256": "8bd066fd24bf8f36354be4ca234ed001b155220939ffd4bc758f41b3b403b7a2",
+    "architecture": "AArch64 Linux",
+    "device_execution_claimed": false
+  },
+  "identity_guard": {
+    "effective_and_real_uid": 1000,
+    "device_tree_model": "iQIYI Qiyu MIX (A081)",
+    "rootfs_markers": [
+      "a081-steamos-arm64",
+      "a081-openkylin-3.0-arm64"
+    ],
+    "private_registry_rule": "Unchanged: nonempty absolute VR_PATHREG_OVERRIDE path.",
+    "runtime_model": "Qiyu MIX A081 QVR experimental 6DoF (uncalibrated)"
+  },
+  "preserved_behavior": [
+    "All argv, library-path, identity and OpenVR property checks remain unchanged except the rootfs marker alternative.",
+    "The original refusal-message text remains unchanged.",
+    "Raw finite/connected/Running_OK pose sampling and stop-marker timing remain unchanged.",
+    "Success still requires accepted_before_stop > 0, nonfinite == 0, invalid_after_stop >= 100, valid_after_stop == 0 and no clock error.",
+    "No pose synthesis, recenter, settings, controller, chaperone, producer, driver or bounded_run modifications."
+  ],
+  "publication": "Only this small integration patch, lock and build recipe belong in this repository; do not add the full observer source or push a third-party license replacement.",
+  "build_recipe": "integration/build-pose-watch.py",
+  "optional_display_guard": {
+    "patch": "pose-watch-display-guard.patch",
+    "patch_sha256": "c91f33cdb59c3128378677463eef3bd75380f2bfa9485ed89d0ee37782d06bff",
+    "header": "tracking-display-guard.hpp",
+    "header_sha256": "bc1e391a48273b1865055f4b21849cc367db24be53219fa76da6ac117917e467",
+    "patched_source_sha256": "a4903538cdba2c097d4e22ed86f01b8e205d1209df8629969b6c1ce63fb7506d",
+    "scope": "Explicit private-session display guard; observation and raw validity acceptance remain unchanged"
+  }
+}

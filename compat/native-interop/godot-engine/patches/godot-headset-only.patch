@@ -1,0 +1,66 @@
+--- a/main/main.cpp
++++ b/main/main.cpp
+@@ -2871,6 +2871,7 @@
+ #ifndef _3D_DISABLED
+ 	// XR project settings.
+ 	GLOBAL_DEF_RST_BASIC("xr/openxr/enabled", false);
++	GLOBAL_DEF_RST_BASIC("xr/openxr/headset_only", false);
+ 	GLOBAL_DEF(PropertyInfo(Variant::STRING, "xr/openxr/target_api_version"), "");
+ 	GLOBAL_DEF_BASIC(PropertyInfo(Variant::STRING, "xr/openxr/default_action_map", PROPERTY_HINT_FILE, "*.tres"), "res://openxr_action_map.tres");
+ 	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "xr/openxr/form_factor", PROPERTY_HINT_ENUM, "Head Mounted,Handheld"), "0");
+@@ -3921,6 +3922,11 @@
+ void Main::setup_boot_logo() {
+ 	GodotProfileZone("setup_boot_logo");
+ 	MAIN_PRINT("Main: Load Boot Image");
++	const bool xr_enabled = XRServer::get_xr_mode() == XRServer::XRMODE_ON ||
++			(XRServer::get_xr_mode() == XRServer::XRMODE_DEFAULT && bool(GLOBAL_GET("xr/openxr/enabled")));
++	if (!Engine::get_singleton()->is_editor_hint() && xr_enabled && bool(GLOBAL_GET("xr/openxr/headset_only"))) {
++		return;
++	}
+ 
+ #if !defined(TOOLS_ENABLED) && defined(WEB_ENABLED)
+ 	bool show_logo = false;
+--- a/modules/openxr/openxr_interface.cpp
++++ b/modules/openxr/openxr_interface.cpp
+@@ -29,6 +29,7 @@
+ /**************************************************************************/
+ 
+ #include "openxr_interface.h"
++#include "core/config/project_settings.h"
+ 
+ #include "action_map/openxr_action_map.h"
+ #include "extensions/openxr_eye_gaze_interaction.h"
+@@ -1282,7 +1283,7 @@
+ 
+ #ifndef ANDROID_ENABLED
+ 	// If separate HMD we should output one eye to screen
+-	if (p_screen_rect != Rect2()) {
++	if (p_screen_rect != Rect2() && !bool(GLOBAL_GET("xr/openxr/headset_only"))) {
+ 		RenderingServerTypes::BlitToScreen blit;
+ 
+ 		blit.render_target = p_render_target;
+--- a/platform/linuxbsd/x11/display_server_x11.cpp
++++ b/platform/linuxbsd/x11/display_server_x11.cpp
+@@ -34,7 +34,9 @@
+ 
+ #include "x11/key_mapping_x11.h"
+ 
++#include "core/config/engine.h"
+ #include "core/config/project_settings.h"
++#include "servers/xr/xr_server.h"
+ #include "core/input/input.h"
+ #include "core/io/file_access.h"
+ #include "core/math/math_funcs.h"
+@@ -1964,6 +1966,12 @@
+ 
+ void DisplayServerX11::show_window(DisplayServerEnums::WindowID p_id) {
+ 	_THREAD_SAFE_METHOD_
++	const bool xr_enabled = XRServer::get_xr_mode() == XRServer::XRMODE_ON ||
++			(XRServer::get_xr_mode() == XRServer::XRMODE_DEFAULT && bool(GLOBAL_GET("xr/openxr/enabled")));
++	if (p_id == DisplayServerEnums::MAIN_WINDOW_ID && !Engine::get_singleton()->is_editor_hint() &&
++			xr_enabled && bool(GLOBAL_GET("xr/openxr/headset_only"))) {
++		return;
++	}
+ 
+ 	WindowData &wd = windows[p_id];
+ 	popup_open(p_id);

@@ -1,0 +1,12 @@
+--- a/pose-watch.cpp
++++ b/pose-watch.cpp
+@@ -59,7 +59,8 @@
+     const char *registry = std::getenv("VR_PATHREG_OVERRIDE");
+     if (argc != 4 || (std::strcmp(argv[3], "bounded") && std::strcmp(argv[3], "continuous")) || argv[2][0] != '/' || argv[1][0] != '/' || getuid() != 1000 || geteuid() != 1000 ||
+         !identity_file("/proc/device-tree/model", "iQIYI Qiyu MIX (A081)") ||
+-        !identity_file("/etc/a081-rootfs-id", "a081-steamos-arm64") ||
++        !(identity_file("/etc/a081-rootfs-id", "a081-steamos-arm64") ||
++          identity_file("/etc/a081-rootfs-id", "a081-openkylin-3.0-arm64")) ||
+         !registry || registry[0] != '/') {
+         std::fputs("A081_POSE_REFUSED: expected UID1000, exact A081 SteamOS identity, private VR_PATHREG_OVERRIDE and absolute libopenvr_api.so argument\n", stderr);
+         return 22;
