@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include <xr/hand/client.hpp>
+#include <xr/hand/joints.hpp>
 #include <atomic>
 #include <cstdlib>
 
@@ -21,6 +22,23 @@ class XRHandPosePair {
         }
         return out;
     }
+public:
+    static bool skeleton(const xr_hand_state &hand,vr::VRBoneTransform_t (&bones)[31]) {
+        xr::hand::Joints js{};if(!xr::hand::joints(hand,js))return false;
+        using Q=std::array<float,4>;using V=xr::hand::Vec;
+        struct Pose {V p{};Q q{0,0,0,1};};
+        Pose global[31]{};Q grip{hand.grip[3],hand.grip[4],hand.grip[5],hand.grip[6]},inverse{-grip[0],-grip[1],-grip[2],grip[3]};
+        const Q axis{0,hand.hand?-.7071067812f:.7071067812f,0,.7071067812f};
+        // Bone 0 is fixed to /pose/raw (measured palm grip); bone 1 is wrist.
+        // Finger bones use Valve's +X left / -X right longitudinal axes.
+        for(unsigned j=1;j<26;++j){auto &v=js[j].pose;global[j].p=xr::hand::rotate(inverse,{v[0]-hand.grip[0],v[1]-hand.grip[1],v[2]-hand.grip[2]});Q q{v[3],v[4],v[5],v[6]};global[j].q=xr::hand::multiply(inverse,j==1?q:xr::hand::multiply(q,axis));}
+        const unsigned aux[5]={4,9,14,19,24};for(unsigned a=0;a<5;++a)global[26+a]=global[aux[a]];
+        for(unsigned j=0;j<31;++j){unsigned parent=j<=1||j>=26?0:j==2||j==6||j==11||j==16||j==21?1:j-1;
+            auto &p=global[parent];Q inv{-p.q[0],-p.q[1],-p.q[2],p.q[3]};auto q=xr::hand::multiply(inv,global[j].q);auto t=xr::hand::rotate(inv,xr::hand::sub(global[j].p,p.p));
+            bones[j].position={t[0],t[1],t[2],1};bones[j].orientation={q[3],q[0],q[1],q[2]};
+        }return true;
+    }
+private:
     class Device final : public vr::ITrackedDeviceServerDriver {
     public:
         Device(XRHandPosePair &pair,unsigned hand):pair_(pair),hand_(hand){}
@@ -44,6 +62,9 @@ class XRHandPosePair {
             input->CreatePoseComponent(p,"/pose/handgrip",&legacy_grip_);
             input->CreatePoseComponent(p,"/pose/openxr_aim",&aim_);
             input->CreatePoseComponent(p,"/pose/tip",&legacy_aim_);
+            auto error=input->CreateSkeletonComponent(p,hand_?"/input/skeleton/right":"/input/skeleton/left",hand_?"/skeleton/hand/right":"/skeleton/hand/left","/pose/raw",vr::VRSkeletalTracking_Partial,nullptr,31,&skeleton_);
+            ovrd_log("XR_HAND_SKELETON hand=%u create=%d bones=31 source_landmarks=21 inferred_metacarpals=5\n",hand_,int(error));
+            if(error!=vr::VRInputError_None)return vr::VRInitError_Driver_Failed;
             return vr::VRInitError_None;
         }
         void Deactivate() override {index_=vr::k_unTrackedDeviceIndexInvalid;}
@@ -67,6 +88,15 @@ class XRHandPosePair {
             input->UpdateScalarComponent(trigger_,h?h->pinch:0,0);input->UpdateBooleanComponent(trigger_touch_,h && (h->flags&XR_HAND_PINCH),0);
             input->UpdateScalarComponent(grab_,h?h->grab:0,0);input->UpdateBooleanComponent(grab_touch_,h && (h->flags&XR_HAND_GRAB),0);
             if (h) {
+                if(last_skeleton_!=pair_.client_.packet().sequence){
+                    vr::VRBoneTransform_t bones[31]{};
+                    if(skeleton(*h,bones)){
+                        auto a=input->UpdateSkeletonComponent(skeleton_,vr::VRSkeletalMotionRange_WithoutController,bones,31);
+                        auto b=input->UpdateSkeletonComponent(skeleton_,vr::VRSkeletalMotionRange_WithController,bones,31);
+                        if(a||b)ovrd_log("XR_HAND_SKELETON hand=%u update=%d,%d\n",hand_,int(a),int(b));
+                        last_skeleton_=pair_.client_.packet().sequence;
+                    }
+                }
                 vr::HmdMatrix34_t identity{};for (unsigned i=0;i<3;++i) identity.m[i][i]=1;
                 auto aim=relative(h->grip,h->aim);
                 input->UpdatePoseComponent(grip_,&identity,0);input->UpdatePoseComponent(aim_,&aim,0);
@@ -77,6 +107,7 @@ class XRHandPosePair {
     private:
         XRHandPosePair &pair_;unsigned hand_;
         std::atomic<vr::TrackedDeviceIndex_t> index_{vr::k_unTrackedDeviceIndexInvalid};
+        vr::VRInputComponentHandle_t skeleton_{};uint64_t last_skeleton_{};
         vr::VRInputComponentHandle_t trigger_{},grab_{},trigger_touch_{},grab_touch_{},grip_{},aim_{},legacy_grip_{},legacy_aim_{};
     };
 public:

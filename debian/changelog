@@ -1,3 +1,9 @@
+monado-xr (25.0.0+xr3) unstable; urgency=medium
+
+  * Publish measured optical hand skeletons to the native OpenXR runtime.
+
+ -- bits <bigbits@hackx.cc>  Thu, 12 Nov 2026 13:39:41 +0800
+
 monado-xr (25.0.0+xr2) unstable; urgency=medium
 
   * Preserve production head recovery and controller inputs; add optical hand profile.
