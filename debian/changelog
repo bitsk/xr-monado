@@ -1,3 +1,9 @@
+monado-xr (25.0.0+xr2) unstable; urgency=medium
+
+  * Preserve production head recovery and controller inputs; add optical hand profile.
+
+ -- bits <bigbits@hackx.cc>  Thu, 12 Nov 2026 10:43:15 +0800
+
 monado-xr (25.0.0+xr1) unstable; urgency=medium
 
   * Import independently maintained XR component and packaging.

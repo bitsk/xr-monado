@@ -8,8 +8,9 @@
 #include "util/u_distortion_mesh.h"
 #include "a081_optics.h"
 #include "util/u_logging.h"
-#include <xr/head/a081_tracking_client.h>
-#include <xr/head/a081_qvr_pose.h>
+#include <xr/head/production-v2/a081_tracking_client.h>
+#include <xr/head/production-v2/a081_qvr_pose.h>
+#include "a081_tracking_recovery.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -48,6 +49,7 @@ struct a081 {
 	uint64_t fused_samples;
 	bool stock_stream, stock_pose;
 	struct xrt_space_relation stock_relation;
+	struct a081_head_recovery recovery;
 	uint64_t positive_poses;
 	char tracking_socket[108];
 	uint64_t stream_packets, stock_pose_packets;
@@ -196,7 +198,7 @@ done:
 static void reset_stream_tracking(struct a081 *d)
 {
 	pthread_mutex_lock(&d->mutex);
-	m_imu_3dof_reset(&d->fusion);
+	a081_head_recovery_reset(&d->recovery, &d->fusion);
 	d->fused_samples = 0;
 	d->fused_time_ns = 0;
 	d->stream_start_ns = 0;
@@ -230,7 +232,9 @@ static void *read_tracking_stream(void *ptr)
 			if (!rc) break;
 			if (rc < 0) { disconnected = true; break; }
 			bool same_session = session == packet.session_id;
-			if (!same_session || packet.sequence != sequence + 1) reset_stream_tracking(d);
+			if (!same_session) reset_stream_tracking(d);
+			// A sequence gap does not erase a world origin: recovery checks the
+			// actual IMU interval and refuses integration over a long gap.
 			if (same_session && (packet.sequence <= sequence || packet.gyro_boottime_ns <= last_gyro)) {
 				disconnected = true; break;
 			}
@@ -241,10 +245,15 @@ static void *read_tracking_stream(void *ptr)
 				reset_stream_tracking(d); continue;
 			}
 			if (d->stock_pose) {
-				struct xrt_space_relation relation;
-				bool valid = a081_qvr_pose(&packet, now, &relation);
 				pthread_mutex_lock(&d->mutex);
+				enum a081_head_mode before = d->recovery.mode;
+				bool valid = a081_head_recovery_update(&d->recovery, &d->fusion, &packet, now);
+				struct xrt_space_relation relation = d->recovery.output;
 				d->stock_relation = relation;
+				if (before != d->recovery.mode)
+					U_LOG_I("A081_HEAD_MODE=%s previous=%s seq=%lu raw_valid=%d relation_flags=%u",
+					        a081_head_mode_name(d->recovery.mode), a081_head_mode_name(before),
+					        packet.sequence, valid, (unsigned)relation.relation_flags);
 				d->fused_time_ns = (int64_t)packet.sample_monotonic_ns;
 				++d->stream_packets;
 				if (packet.flags & A081_TRACKING_RAW_POSE) ++d->stock_pose_packets;
@@ -399,7 +408,7 @@ struct xrt_device *a081_create(void)
 	}
 	struct xrt_device *xdev = &d->base;
 	xdev->name = XRT_DEVICE_GENERIC_HMD; xdev->device_type = XRT_DEVICE_TYPE_HMD;
-	snprintf(xdev->str, sizeof(xdev->str), "XR MIX A081 %s (uncalibrated)", d->stock_pose ? "QVR experimental 6DoF" : d->stock_stream ? "QVR input 3DoF" : "real IIO 3DoF");
+	snprintf(xdev->str, sizeof(xdev->str), "Qiyu MIX A081 %s (uncalibrated)", d->stock_pose ? "QVR experimental 6DoF" : d->stock_stream ? "QVR input 3DoF" : "real IIO 3DoF");
 	snprintf(xdev->serial, sizeof(xdev->serial), "A081-LINUX-IIO");
 	xdev->inputs[0].name = XRT_INPUT_GENERIC_HEAD_POSE;
 	xdev->supported.orientation_tracking = true; xdev->supported.position_tracking = d->stock_pose;
@@ -423,7 +432,7 @@ struct xrt_device *a081_create(void)
 	a081_setup_optics(xdev);
 	U_LOG_I("A081 stock optical map: display FOV, RGB polynomial, panel overscan scale; physical acceptance pending");
 	if (d->stock_pose)
-		U_LOG_W("A081 experimental QVR pose: SDK android-portrait-v1, raw tracker origin (IMU-reference assumed), metric scale from factory calibration; physical axes/scale/eye offset/accuracy uncalibrated; no prediction or controllers");
+		U_LOG_W("A081 experimental QVR pose: SDK android-portrait-v1, raw tracker origin (IMU-reference assumed), metric scale from factory calibration; physical axes/scale/eye offset/accuracy uncalibrated; OEM motion state for runtime prediction");
 	else
 		U_LOG_W("A081 bring-up: source=%s; real IMU 3DoF, provisional optics, NO position or controllers", d->stock_stream ? "qvr-stream" : "iio");
 	atomic_store(&d->running, true);

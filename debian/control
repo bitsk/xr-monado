@@ -2,7 +2,7 @@ Source: monado-xr
 Section: misc
 Priority: optional
 Maintainer: openKylin XR SIG <xr@lists.openkylin.top>
-Build-Depends: debhelper-compat (= 13), cmake, ninja-build, g++, pkg-config, libeigen3-dev, glslang-tools, libudev-dev, libxr-head-dev, libxr-controller-dev
+Build-Depends: debhelper-compat (= 13), cmake, ninja-build, g++, pkg-config, libeigen3-dev, glslang-tools, libudev-dev, libxr-head-dev (>= 0.1.1), libxr-controller-dev (>= 0.1.1), libxr-hand-dev
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 Vcs-Git: https://gitee.com/bigbits/xr-monado.git

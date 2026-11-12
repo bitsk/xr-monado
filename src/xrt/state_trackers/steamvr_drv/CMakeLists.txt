@@ -15,3 +15,6 @@ target_link_libraries(
 		aux_generated_bindings_helpers
 		ovrd_generated_bindings
 	)
+
+find_package(XRHand CONFIG REQUIRED)
+target_link_libraries(st_ovrd PRIVATE XRHand::api)

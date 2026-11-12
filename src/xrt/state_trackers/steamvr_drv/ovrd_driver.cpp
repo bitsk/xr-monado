@@ -46,6 +46,7 @@ extern "C" {
 }
 #include "math/m_vec3.h"
 #include "a081_controller_openvr.hpp"
+#include "xr_hand_openvr.hpp"
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -1203,6 +1204,7 @@ public:
 private:
 	struct xrt_device *m_xdev = NULL;
 
+
 	// clang-format off
 
 	vr::TrackedDeviceIndex_t m_trackedDeviceIndex = 0;
@@ -1408,21 +1410,28 @@ CDeviceDriver_Monado::GetPose()
 	    .vecAngularAcceleration = {0, 0, 0},
 
 	    .result = vr::TrackingResult_Running_OK,
-	    .poseIsValid = raw_qvr ?
-	                   (rel.relation_flags & (XRT_SPACE_RELATION_ORIENTATION_VALID_BIT | XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT |
-	                                          XRT_SPACE_RELATION_POSITION_VALID_BIT | XRT_SPACE_RELATION_POSITION_TRACKED_BIT)) ==
-	                    (XRT_SPACE_RELATION_ORIENTATION_VALID_BIT | XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT |
-	                     XRT_SPACE_RELATION_POSITION_VALID_BIT | XRT_SPACE_RELATION_POSITION_TRACKED_BIT) :
-	                    (rel.relation_flags & XRT_SPACE_RELATION_ORIENTATION_VALID_BIT) != 0,
+	    .poseIsValid = (rel.relation_flags & XRT_SPACE_RELATION_ORIENTATION_VALID_BIT) != 0,
 	    .willDriftInYaw = !m_xdev->supported.position_tracking,
 	    // A081 supplies measured orientation only; do not synthesize neck motion.
 	    .shouldApplyHeadModel = !m_xdev->supported.position_tracking &&
 	                            strcmp(m_xdev->serial, "A081-LINUX-IIO") != 0,
 	    .deviceIsConnected = true,
 	};
-	if (strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0 && m_xdev->supported.position_tracking && !t.poseIsValid)
-		t.result = vr::TrackingResult_Running_OutOfRange;
 	apply_pose(&rel, &t);
+	if (raw_qvr) {
+		// Last-known/inertially inferred position is valid for presentation,
+		// but is never advertised as a directly tracked 6DoF position.
+		if (rel.relation_flags & XRT_SPACE_RELATION_POSITION_VALID_BIT)
+			copy_vec3(&rel.pose.position, t.vecPosition);
+		else
+			t.poseIsValid = false;
+		if (!t.poseIsValid)
+			t.result = vr::TrackingResult_Running_OutOfRange;
+		else if (!(rel.relation_flags & XRT_SPACE_RELATION_POSITION_TRACKED_BIT)) {
+			t.result = vr::TrackingResult_Fallback_RotationOnly;
+			t.willDriftInYaw = true;
+		}
+	}
 
 #ifdef DUMP_POSE
 	ovrd_log("get hmd pose %f %f %f %f, %f %f %f\n", t.qRotation.x, t.qRotation.y, t.qRotation.z, t.qRotation.w,
@@ -1603,6 +1612,7 @@ private:
 	CDeviceDriver_Monado_Controller *m_left = NULL;
 	CDeviceDriver_Monado_Controller *m_right = NULL;
 	A081ControllerPosePair m_a081_pose_controllers;
+	XRHandPosePair m_xr_hands;
 };
 
 CServerDriver_Monado g_serverDriverMonado;
@@ -1674,7 +1684,8 @@ CServerDriver_Monado::Init(vr::IVRDriverContext *pDriverContext)
 		ovrd_log("Added right Controller: %s\n", right_xdev->str);
 	}
 
-	if (!m_a081_pose_controllers.configure(strcmp(m_xhmd->serial, "A081-LINUX-IIO") == 0))
+	if (!(m_xr_hands.requested() ? m_xr_hands.configure(strcmp(m_xhmd->serial, "A081-LINUX-IIO") == 0) :
+	      m_a081_pose_controllers.configure(strcmp(m_xhmd->serial, "A081-LINUX-IIO") == 0)))
 		return vr::VRInitError_Driver_Failed;
 	return vr::VRInitError_None;
 }
@@ -1682,6 +1693,7 @@ CServerDriver_Monado::Init(vr::IVRDriverContext *pDriverContext)
 void
 CServerDriver_Monado::Cleanup()
 {
+	m_xr_hands.cleanup();
 	m_a081_pose_controllers.cleanup();
 	if (m_MonadoDeviceDriver != NULL) {
 		delete m_MonadoDeviceDriver;
@@ -1753,6 +1765,7 @@ void
 CServerDriver_Monado::RunFrame()
 {
 	m_a081_pose_controllers.frame();
+	m_xr_hands.frame();
 	if (m_left) {
 		m_left->RunFrame();
 	}
