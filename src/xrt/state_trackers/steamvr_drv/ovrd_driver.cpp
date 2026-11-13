@@ -1352,10 +1352,15 @@ CDeviceDriver_Monado::GetComponent(const char *pchComponentNameAndVersion)
 	return NULL;
 }
 
+extern "C" void a081_qvr_pose_timing(struct xrt_device *, char *, unsigned);
+
 void
-CDeviceDriver_Monado::DebugRequest(const char *pchRequest, char *pchResponseBuffer, uint32_t unResponseBufferSize)
+CDeviceDriver_Monado::DebugRequest(const char *request, char *response, uint32_t size)
 {
-	//! @todo
+    if (!response || !size) return;
+    response[0]='\0';
+    if (request && strcmp(request,"a081-pose-timing")==0 && strcmp(m_xdev->serial,"A081-LINUX-IIO")==0)
+        a081_qvr_pose_timing(m_xdev,response,size);
 }
 
 static constexpr inline vr::HmdQuaternion_t
@@ -1392,7 +1397,8 @@ CDeviceDriver_Monado::GetPose()
 	m_relation_chain_resolve(&chain, &rel);
 
 	vr::DriverPose_t t = {
-	    // QVR supplies an unpredicted measured sample with its actual monotonic time.
+	    // QVR anchor plus observed IMU integration, at its actual state epoch.
+	    // The driver never predicts past the last real IMU sample.
 	    .poseTimeOffset = raw_qvr ? double(sample_ns - int64_t(os_monotonic_get_ns())) / 1e9 : 0,
 	    .qWorldFromDriverRotation = HmdQuaternion_Init(1, 0, 0, 0),
 	    .vecWorldFromDriverTranslation = {0, 0, 0},

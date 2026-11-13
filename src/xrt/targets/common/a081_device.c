@@ -11,6 +11,11 @@
 #include <xr/head/production-v2/a081_tracking_client.h>
 #include <xr/head/production-v2/a081_qvr_pose.h>
 #include "a081_tracking_recovery.h"
+#include <xr/head/production-v2/a081_imu_history.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/vfs.h>
+#include <linux/magic.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -52,6 +57,10 @@ struct a081 {
 	struct a081_head_recovery recovery;
 	uint64_t positive_poses;
 	char tracking_socket[108];
+	char imu_history_path[512];
+	struct a081_imu_history *imu_history;
+	int64_t imu_retry_ns;
+	uint64_t imu_advance_count, imu_anchor_ns, imu_state_ns, imu_query_ns;
 	uint64_t stream_packets, stock_pose_packets;
 	int64_t stream_start_ns;
 };
@@ -300,7 +309,52 @@ static void *read_tracking_stream(void *ptr)
 	return NULL;
 }
 
-// Private SteamVR bridge reads one measured pose with its matching sample time.
+// The raw OEM anchor remains unchanged. Advance only presentation orientation
+// with observed gyro samples collected while the OEM camera RPC was blocked.
+// Its new epoch is the last observed IMU timestamp, not "now" or display time;
+// SteamVR remains the only owner of prediction beyond that timestamp.
+static void advance_live_imu(struct a081 *d, struct xrt_space_relation *out, int64_t *sample_ns, int64_t now)
+{
+    if (!d->imu_history_path[0] || d->recovery.mode != A081_HEAD_TRACKED ||
+        !(out->relation_flags & XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT)) return;
+    if (d->imu_history && a081_imu_load(&d->imu_history->magic) != A081_IMU_HISTORY_MAGIC) {
+        munmap(d->imu_history,sizeof(*d->imu_history)); d->imu_history=NULL;
+    }
+    if (!d->imu_history && now >= d->imu_retry_ns) {
+        d->imu_retry_ns=now+250000000;
+        int fd=open(d->imu_history_path,O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
+        if (fd>=0) {
+            struct stat st; struct statfs fs;
+            if (!fstat(fd,&st) && S_ISREG(st.st_mode) && st.st_uid==0 &&
+                st.st_size==(off_t)sizeof(struct a081_imu_history) && !fstatfs(fd,&fs) && fs.f_type==TMPFS_MAGIC) {
+                void *p=mmap(NULL,sizeof(struct a081_imu_history),PROT_READ,MAP_SHARED,fd,0);
+                if (p!=MAP_FAILED) d->imu_history=p;
+            }
+            close(fd);
+        }
+    }
+    if (!d->imu_history) return;
+    struct xrt_quat *r=&out->pose.orientation;
+    double q[4]={r->x,r->y,r->z,r->w}, body[3]; uint64_t latest;
+    if (!a081_imu_advance(d->imu_history,*sample_ns,now,q,&latest,body)) return;
+    double dt=(double)(latest-*sample_ns)/1e9;
+    *r=(struct xrt_quat){q[0],q[1],q[2],q[3]};
+    struct xrt_vec3 local={body[0],body[1],body[2]};
+    math_quat_rotate_vec3(r,&local,&out->angular_velocity);
+    out->relation_flags |= XRT_SPACE_RELATION_ANGULAR_VELOCITY_VALID_BIT;
+    // Rebase the existing linear prediction to the same time, so the runtime
+    // does not either omit or double-count this interval for translation.
+    if (out->relation_flags & XRT_SPACE_RELATION_LINEAR_VELOCITY_VALID_BIT) {
+        out->pose.position.x += out->linear_velocity.x*dt;
+        out->pose.position.y += out->linear_velocity.y*dt;
+        out->pose.position.z += out->linear_velocity.z*dt;
+    }
+    d->imu_advance_count++; d->imu_anchor_ns=*sample_ns; d->imu_state_ns=latest; d->imu_query_ns=now;
+    *sample_ns=(int64_t)latest;
+}
+
+// Private SteamVR bridge returns the tracked anchor plus observed live IMU,
+// with a matching state epoch. Raw OEM tracking packets are never rewritten.
 bool a081_qvr_latest_pose(struct xrt_device *xdev, struct xrt_space_relation *out, int64_t *sample_ns)
 {
 	struct a081 *d = (struct a081 *)xdev;
@@ -313,9 +367,22 @@ bool a081_qvr_latest_pose(struct xrt_device *xdev, struct xrt_space_relation *ou
 	if (atomic_load(&d->running) && age >= 0 && age < 100000000) {
 		*out = d->stock_relation;
 		*sample_ns = d->fused_time_ns;
+		advance_live_imu(d,out,sample_ns,now);
 	}
 	pthread_mutex_unlock(&d->mutex);
 	return true;
+}
+
+// On-demand diagnostics only: no polling writer and no persistent trace.
+void a081_qvr_pose_timing(struct xrt_device *xdev, char *buffer, unsigned size)
+{
+    struct a081 *d=(struct a081 *)xdev;
+    pthread_mutex_lock(&d->mutex);
+    snprintf(buffer,size,"{\"mode\":\"%s\",\"advanced_queries\":%llu,\"anchor_mono_ns\":%llu,\"state_mono_ns\":%llu,\"query_mono_ns\":%llu,\"raw_anchor_mono_ns\":%lld,\"prediction_owner\":\"SteamVR\",\"physical_verified\":false}",
+             a081_head_mode_name(d->recovery.mode),(unsigned long long)d->imu_advance_count,
+             (unsigned long long)d->imu_anchor_ns,(unsigned long long)d->imu_state_ns,
+             (unsigned long long)d->imu_query_ns,(long long)d->fused_time_ns);
+    pthread_mutex_unlock(&d->mutex);
 }
 
 static xrt_result_t get_pose(struct xrt_device *xdev, enum xrt_input_name name, int64_t at, struct xrt_space_relation *out)
@@ -358,6 +425,7 @@ static void destroy(struct xrt_device *xdev)
 	if (d->stock_stream) U_LOG_I("A081 stream stopped: packets=%lu raw_pose_records=%lu", d->stream_packets, d->stock_pose_packets);
 	close_stream(&d->gyro); close_stream(&d->accel);
 	if (d->lock_fd >= 0) close(d->lock_fd);
+	if (d->imu_history) munmap(d->imu_history,sizeof(*d->imu_history));
 	m_imu_3dof_close(&d->fusion);
 	pthread_mutex_destroy(&d->mutex);
 	u_device_free(xdev);
@@ -383,6 +451,9 @@ struct xrt_device *a081_create(void)
 	if (source && strcmp(source, "iio") && strcmp(source, "qvr-stream") && strcmp(source, "qvr-pose")) {
 		U_LOG_E("A081_TRACKING_SOURCE must be iio, qvr-stream or qvr-pose"); destroy(&d->base); return NULL;
 	}
+    const char *imu_path=getenv("A081_QVR_IMU_HISTORY");
+    if (imu_path && !strncmp(imu_path,"/run/",5) && strlen(imu_path)<sizeof(d->imu_history_path))
+        strcpy(d->imu_history_path,imu_path);
 	d->stock_pose = source && !strcmp(source, "qvr-pose");
 	d->stock_stream = d->stock_pose || (source && !strcmp(source, "qvr-stream"));
 	if (d->stock_pose) {
