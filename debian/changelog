@@ -1,3 +1,9 @@
+monado-xr (25.0.0+xr6) unstable; urgency=medium
+
+  * Require gesture release after optical hand tracking is reacquired.
+
+ -- bits <bigbits@hackx.cc>  Fri, 13 Nov 2026 10:24:38 +0800
+
 monado-xr (25.0.0+xr5) unstable; urgency=medium
 
   * Package the original app-scoped compatibility layers from their canonical source.

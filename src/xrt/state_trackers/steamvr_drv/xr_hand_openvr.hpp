@@ -99,6 +99,10 @@ private:
             auto physical=source==XRInputSwitch::Controllers?pair_.controllers_.inputs(hand_):A081ControllerPosePair::Inputs{};
             auto input=vr::VRDriverInput();
             if(generation_!=pair_.switch_.generation()){generation_=pair_.switch_.generation();require_release_=true;last_skeleton_=0;}
+            // Tracking may disappear while the selected source remains Hands.
+            // Reacquiring a pinched hand must wait for release, just as a
+            // source switch does; discard the old skeleton sequence too.
+            if(source==XRInputSwitch::Hands&&!h){require_release_=true;last_skeleton_=0;}
             float trigger=h?h->pinch:physical.trigger_value,grab=h?h->grab:physical.grip_value;
             if(require_release_&&source!=XRInputSwitch::None&&trigger<=.35f&&grab<=.35f&&!physical.face0_click&&!physical.face1_click&&!physical.system_click&&!physical.joystick_click)require_release_=false;
             bool enabled=source!=XRInputSwitch::None&&!require_release_;
