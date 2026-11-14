@@ -6,38 +6,70 @@
 #include <iterator>
 #include <string>
 #include <atomic>
+#include <cmath>
 
+// Independent channels: holding grip at handoff must not block trigger/face
+// buttons. Only a real fresh release can arm a channel after tracking loss.
+class XRButtonReleaseGate {
+public:
+    void reset(){blocked_=63;}
+    void sample(const float (&values)[6],bool valid){
+        if(!valid){reset();return;}
+        for(unsigned i=0;i<6;++i)if(std::isfinite(values[i])&&values[i]<=.35f)blocked_&=~(1u<<i);
+    }
+    void deliberate_press(unsigned mask){blocked_&=~mask;}
+    bool allows(unsigned channel)const{return !(blocked_&(1u<<channel));}
+    unsigned mask()const{return blocked_;}
+private:
+    unsigned blocked_=63;
+};
+
+// Selection and button neutralization are separate: the new valid pose is
+// published during the neutral interval so action consumers can observe UP
+// before the first intentional press. Invalid poses cannot rearm buttons.
 class XRInputSwitch {
 public:
     enum Source:unsigned {None,Controllers,Hands};
-    Source source() const {return uint64_t(os_monotonic_get_ns())<neutral_until_.load()?None:Source(selected_.load());}
+    Source source() const {return Source(selected_.load());}
+    bool neutral() const {return uint64_t(os_monotonic_get_ns())<neutral_until_.load();}
+    uint64_t neutral_until() const {return neutral_until_.load();}
+    bool button_takeover() const {return button_takeover_;}
     bool hand_enabled()const{return hands_;}
-    void frame(bool controllers,bool hands,bool activity,bool held){
+    void frame(bool controllers,bool hands,bool activity,bool controller_press,bool hand_press,bool held){
         uint64_t now=os_monotonic_get_ns();read(now);
-        if(activity)last_controller_=now;
-        Source desired=None;
+        const auto current=source();
+        if(activity&&controllers)last_controller_=now;
+        if(!hands||!hands_)hands_since_=0;
+        else if(!hands_since_)hands_since_=now;
+        bool ready=hands_since_&&now-hands_since_>=300000000ULL;
+        Source desired=None;reason_="unavailable";
         if(active_){
-            if(mode_=="controllers")desired=Controllers;
-            else if(mode_=="hands"&&hands_)desired=Hands;
-            else if(controllers&&(now-last_controller_<2000000000ULL||(Source(selected_.load())==Controllers&&held)))desired=Controllers;
-            else if(hands&&hands_)desired=Hands;
-            else if(controllers)desired=Controllers;
-            if(mode_=="auto"&&held&&!activity&&source()==Hands&&hands&&hands_)desired=Hands;
+            if(mode_=="controllers"){desired=Controllers;reason_="manual";}
+            else if(mode_=="hands"){desired=hands_?Hands:None;reason_="manual";}
+            else if(held&&((current==Controllers&&controllers)||(current==Hands&&hands&&hands_))){desired=current;reason_="interaction_held";}
+            else if(controllers&&controller_press){desired=Controllers;reason_="controller_press";}
+            else if(ready&&hand_press){desired=Hands;reason_="hand_pinch";}
+            else if(current==Hands&&hands&&hands_&&!activity){desired=Hands;reason_="hands_active";}
+            else if(controllers&&last_controller_&&now-last_controller_<800000000ULL){desired=Controllers;reason_="controller_activity";}
+            else if(ready){desired=Hands;reason_="hands_ready";}
+            else if(controllers){desired=Controllers;reason_="controller_available";}
         }
         if(desired!=candidate_){candidate_=desired;candidate_since_=now;}
         bool explicit_change=mode_!=previous_mode_||hands_!=previous_hands_||!active_;
         previous_mode_=mode_;previous_hands_=hands_;
-        if(desired!=Source(selected_.load())&&(explicit_change||desired==None||now-candidate_since_>=150000000ULL)){
+        bool intentional=mode_=="auto"&&((desired==Controllers&&controller_press)||(desired==Hands&&hand_press));
+        if(desired!=current&&(explicit_change||intentional||desired==None||now-candidate_since_>=120000000ULL)){
+            button_takeover_=!explicit_change&&desired==Controllers&&controller_press;
             selected_=desired;report_after_=0;neutral_until_=now+150000000ULL;++generation_;
-            ovrd_log("XR_INPUT_SWITCH source=%u generation=%llu mode=%s neutral_ms=150\n",unsigned(desired),(unsigned long long)generation_,mode_.c_str());
+            ovrd_log("XR_INPUT_SWITCH source=%u generation=%llu mode=%s reason=%s neutral_ms=150\n",unsigned(desired),(unsigned long long)generation_,mode_.c_str(),reason_);
         }
     }
     uint64_t generation()const{return generation_;}
-    void report(bool c0,bool c1,bool h0,bool h1){
-        uint64_t now=os_monotonic_get_ns();auto current=source();if(now<report_after_&&current==reported_)return;reported_=current;report_after_=now+200000000ULL;
+    void report(bool c0,bool c1,bool h0,bool h1,unsigned blocked0,unsigned blocked1){
+        uint64_t now=os_monotonic_get_ns();if(now<report_after_)return;report_after_=now+100000000ULL;
         const char *path=std::getenv("XR_INPUT_STATUS_FILE");if(!path||!*path)return;
         std::string tmp=std::string(path)+".tmp";FILE *f=std::fopen(tmp.c_str(),"w");if(!f)return;
-        auto s=source();std::fprintf(f,"{\"schema\":1,\"observed_monotonic_ns\":%llu,\"generation\":%llu,\"active_source\":\"%s\",\"mode\":\"%s\",\"controllers\":[%s,%s],\"hands\":[%s,%s]}\n",(unsigned long long)now,(unsigned long long)generation_,s==Hands?"hands":s==Controllers?"controllers":"none",mode_.c_str(),c0?"true":"false",c1?"true":"false",h0?"true":"false",h1?"true":"false");std::fclose(f);std::rename(tmp.c_str(),path);
+        auto s=source();std::fprintf(f,"{\"schema\":1,\"observed_monotonic_ns\":%llu,\"generation\":%llu,\"active_source\":\"%s\",\"mode\":\"%s\",\"reason\":\"%s\",\"neutral\":%s,\"blocked_buttons\":[%u,%u],\"controllers\":[%s,%s],\"hands\":[%s,%s]}\n",(unsigned long long)now,(unsigned long long)generation_,s==Hands?"hands":s==Controllers?"controllers":"none",mode_.c_str(),reason_,neutral()?"true":"false",blocked0,blocked1,c0?"true":"false",c1?"true":"false",h0?"true":"false",h1?"true":"false");std::fclose(f);std::rename(tmp.c_str(),path);
     }
 private:
     void read(uint64_t now){
@@ -52,7 +84,7 @@ private:
         cJSON_Delete(root);
     }
     std::atomic<unsigned> selected_{None};std::atomic<uint64_t> neutral_until_{};
-    Source reported_=None;
-    Source candidate_=None;uint64_t candidate_since_{},last_controller_{},read_after_{},report_after_{},generation_{};
-    std::string mode_="hands",previous_mode_;bool active_=true,hands_=true,previous_hands_=true;
+    Source candidate_=None;uint64_t candidate_since_{},last_controller_{},hands_since_{},read_after_{},report_after_{},generation_{};
+    const char *reason_="unavailable";
+    std::string mode_="auto",previous_mode_;bool active_=true,hands_=true,previous_hands_=true,button_takeover_=false;
 };

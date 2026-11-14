@@ -218,6 +218,16 @@ private:
         ovrd_log("A081 controller pose connected to root relay\n");
     }
 public:
+    bool controls_valid(unsigned hand)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        const auto &s = samples[hand];
+        const auto now = uint64_t(os_monotonic_get_ns());
+        return s.received_ns && now >= s.received_ns &&
+               now - s.received_ns < A081_CONTROLLER_POSE_MAX_AGE_NS &&
+               (s.packet.flags & A081_CONTROLLER_CONTROLS_VALID) &&
+               (A081_CONTROLLER_CONTROLS_MASK(s.packet.controls) & A081_CONTROLLER_CONTROLS_MODE1) == A081_CONTROLLER_CONTROLS_MODE1;
+    }
     Inputs inputs(unsigned hand)
     {
         Inputs v{};

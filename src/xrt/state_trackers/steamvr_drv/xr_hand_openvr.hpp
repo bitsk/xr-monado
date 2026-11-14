@@ -98,19 +98,39 @@ private:
             auto source=pair_.switch_.source();auto h=source==XRInputSwitch::Hands?pair_.client_.get(hand_):std::nullopt;
             auto physical=source==XRInputSwitch::Controllers?pair_.controllers_.inputs(hand_):A081ControllerPosePair::Inputs{};
             auto input=vr::VRDriverInput();
-            if(generation_!=pair_.switch_.generation()){generation_=pair_.switch_.generation();require_release_=true;last_skeleton_=0;}
-            // Tracking may disappear while the selected source remains Hands.
-            // Reacquiring a pinched hand must wait for release, just as a
-            // source switch does; discard the old skeleton sequence too.
-            if(source==XRInputSwitch::Hands&&!h){require_release_=true;last_skeleton_=0;}
+            const auto now=uint64_t(os_monotonic_get_ns());
+            bool valid=h.has_value()||(source==XRInputSwitch::Controllers&&pair_.controllers_.pose(hand_).poseIsValid&&pair_.controllers_.controls_valid(hand_));
+            if(generation_!=pair_.switch_.generation()){
+                generation_=pair_.switch_.generation();gate_.reset();last_skeleton_=0;pending_mask_=0;
+                if(pair_.switch_.button_takeover()){
+                    pending_mask_=pair_.press_edges_[hand_];pending_=physical;
+                    pending_until_=pair_.switch_.neutral_until()+80000000ULL;
+                }
+            }
+            if(!valid){gate_.reset();last_skeleton_=0;pending_mask_=0;}
             float trigger=h?h->pinch:physical.trigger_value,grab=h?h->grab:physical.grip_value;
-            if(require_release_&&source!=XRInputSwitch::None&&trigger<=.35f&&grab<=.35f&&!physical.face0_click&&!physical.face1_click&&!physical.system_click&&!physical.joystick_click)require_release_=false;
-            bool enabled=source!=XRInputSwitch::None&&!require_release_;
-            input->UpdateScalarComponent(trigger_,enabled?trigger:0,0);input->UpdateBooleanComponent(trigger_touch_,enabled&&(h?bool(h->flags&XR_HAND_PINCH):physical.trigger_touch),0);
-            input->UpdateScalarComponent(grab_,enabled?grab:0,0);input->UpdateBooleanComponent(grab_touch_,enabled&&(h?bool(h->flags&XR_HAND_GRAB):physical.grip_touch),0);
-            input->UpdateBooleanComponent(face0_,enabled&&physical.face0_click,0);input->UpdateBooleanComponent(face1_,enabled&&physical.face1_click,0);
+            const float values[6]={trigger,grab,float(physical.face0_click),float(physical.face1_click),float(physical.system_click),float(physical.joystick_click)};
+            gate_.sample(values,valid);
+            if(now>=pending_until_)pending_mask_=0;
+            // Only a fresh button edge that requested auto takeover is retained.
+            // A held button at startup, manual switching or reacquisition is not.
+            if(valid&&pending_mask_){
+                gate_.deliberate_press(pending_mask_);
+                if(pending_mask_&1)trigger=std::max(trigger,pending_.trigger_value);
+                if(pending_mask_&2)grab=std::max(grab,pending_.grip_value);
+                if(pending_mask_&4)physical.face0_click=true;
+                if(pending_mask_&8)physical.face1_click=true;
+                if(pending_mask_&16)physical.system_click=true;
+                if(pending_mask_&32)physical.joystick_click=true;
+            }
+            bool enabled=valid&&!pair_.switch_.neutral();
+            const auto allow=[&](unsigned i){return enabled&&gate_.allows(i);};
+            interacting_=enabled&&((allow(0)&&trigger>.35f)||(allow(1)&&grab>.35f)||(allow(2)&&physical.face0_click)||(allow(3)&&physical.face1_click)||(allow(4)&&physical.system_click)||(allow(5)&&physical.joystick_click));
+            input->UpdateScalarComponent(trigger_,allow(0)?trigger:0,0);input->UpdateBooleanComponent(trigger_touch_,allow(0)&&(h?bool(h->flags&XR_HAND_PINCH):physical.trigger_touch),0);
+            input->UpdateScalarComponent(grab_,allow(1)?grab:0,0);input->UpdateBooleanComponent(grab_touch_,allow(1)&&(h?bool(h->flags&XR_HAND_GRAB):physical.grip_touch),0);
+            input->UpdateBooleanComponent(face0_,allow(2)&&physical.face0_click,0);input->UpdateBooleanComponent(face1_,allow(3)&&physical.face1_click,0);
             input->UpdateBooleanComponent(face0_touch_,enabled&&physical.face0_touch,0);input->UpdateBooleanComponent(face1_touch_,enabled&&physical.face1_touch,0);
-            input->UpdateBooleanComponent(system_,enabled&&physical.system_click,0);input->UpdateBooleanComponent(stick_click_,enabled&&physical.joystick_click,0);input->UpdateBooleanComponent(stick_touch_,enabled&&physical.joystick_touch,0);
+            input->UpdateBooleanComponent(system_,allow(4)&&physical.system_click,0);input->UpdateBooleanComponent(stick_click_,allow(5)&&physical.joystick_click,0);input->UpdateBooleanComponent(stick_touch_,enabled&&physical.joystick_touch,0);
             input->UpdateScalarComponent(stick_x_,enabled?physical.joystick_x:0,0);input->UpdateScalarComponent(stick_y_,enabled?physical.joystick_y:0,0);
             if(h){
                 if(last_skeleton_!=pair_.client_.packet().sequence){vr::VRBoneTransform_t bones[31]{};if(skeleton(*h,bones)){
@@ -124,10 +144,13 @@ private:
             }
             auto pose=GetPose();vr::VRServerDriverHost()->TrackedDevicePoseUpdated(index,pose,sizeof(pose));
         }
+        bool interacting() const {return interacting_;}
+        unsigned blocked() const {return gate_.mask();}
     private:
         XRHandPosePair &pair_;unsigned hand_;
         std::atomic<vr::TrackedDeviceIndex_t> index_{vr::k_unTrackedDeviceIndexInvalid};
-        uint64_t generation_{};bool require_release_=true;
+        uint64_t generation_{},pending_until_{};XRButtonReleaseGate gate_;unsigned pending_mask_{};bool interacting_=false;
+        A081ControllerPosePair::Inputs pending_{};
         vr::VRInputComponentHandle_t face0_{},face1_{},face0_touch_{},face1_touch_{},system_{},stick_click_{},stick_touch_{},stick_x_{},stick_y_{};
         vr::VRInputComponentHandle_t skeleton_{};uint64_t last_skeleton_{};
         vr::VRInputComponentHandle_t trigger_{},grab_{},trigger_touch_{},grab_touch_{},grip_{},aim_{},legacy_grip_{},legacy_aim_{};
@@ -146,14 +169,36 @@ public:
         if (!enabled_) return;
         controllers_.frame(false);client_.update();
         bool cp[2]={controllers_.pose(0).poseIsValid,controllers_.pose(1).poseIsValid};bool hp[2]={client_.get(0).has_value(),client_.get(1).has_value()};
-        bool activity=false,held=false;
-        for(unsigned i=0;i<2;++i){auto v=controllers_.inputs(i);auto p=controllers_.pose(i);bool pressed=v.trigger_value>.35f||v.grip_value>.35f||v.face0_click||v.face1_click||v.system_click||v.joystick_click;
-            bool moved=false;if(cp[i]&&previous_valid_[i]){double d=0,q=0;for(unsigned j=0;j<3;++j)d+=std::pow(p.vecPosition[j]-previous_pose_[i].vecPosition[j],2);q=p.qRotation.w*previous_pose_[i].qRotation.w+p.qRotation.x*previous_pose_[i].qRotation.x+p.qRotation.y*previous_pose_[i].qRotation.y+p.qRotation.z*previous_pose_[i].qRotation.z;moved=d>.000025||std::fabs(q)<.9998;}
-            activity|=pressed||v.face0_touch||v.face1_touch||v.joystick_touch||v.trigger_touch||moved;
-            if(switch_.source()==XRInputSwitch::Controllers)held|=pressed;
-            if(switch_.source()==XRInputSwitch::Hands){auto h=client_.get(i);held|=h&&bool(h->flags&(XR_HAND_PINCH|XR_HAND_GRAB));}
-            previous_pose_[i]=p;previous_valid_[i]=cp[i];}
-        switch_.frame(cp[0]||cp[1],hp[0]||hp[1],activity,held);switch_.report(cp[0],cp[1],hp[0],hp[1]);left_.publish();right_.publish();
+        const auto now=uint64_t(os_monotonic_get_ns());
+        bool activity=false,controller_press=false,hand_press=false;
+        for(unsigned i=0;i<2;++i){
+            auto v=controllers_.inputs(i);auto p=controllers_.pose(i);
+            bool valid=cp[i]&&controllers_.controls_valid(i);
+            float values[6]={v.trigger_value,v.grip_value,float(v.face0_click),float(v.face1_click),float(v.system_click),float(v.joystick_click)};
+            unsigned buttons=previous_buttons_[i];
+            for(unsigned j=0;j<6;++j){if(values[j]<=.35f)buttons&=~(1u<<j);else if(values[j]>=.65f)buttons|=1u<<j;}
+            press_edges_[i]=valid&&previous_valid_[i]?buttons&~previous_buttons_[i]:0;
+            controller_press|=press_edges_[i]!=0;
+            bool stick=valid&&std::hypot(v.joystick_x,v.joystick_y)>.25f;
+            // Integrate movement over a short window. Touch and frame-to-frame
+            // noise cannot indefinitely refresh controller priority.
+            bool moved=false;
+            if(valid&&previous_valid_[i]&&now-motion_since_[i]>=200000000ULL){
+                double d=0;for(unsigned j=0;j<3;++j)d+=std::pow(p.vecPosition[j]-previous_pose_[i].vecPosition[j],2);
+                double q=p.qRotation.w*previous_pose_[i].qRotation.w+p.qRotation.x*previous_pose_[i].qRotation.x+p.qRotation.y*previous_pose_[i].qRotation.y+p.qRotation.z*previous_pose_[i].qRotation.z;
+                moved=d>.000625||std::fabs(q)<.9961947; // 25 mm or 10 degrees
+                previous_pose_[i]=p;motion_since_[i]=now;
+            }
+            if(!valid||!previous_valid_[i]){previous_pose_[i]=p;motion_since_[i]=now;}
+            activity|=press_edges_[i]!=0||stick||moved;
+            auto h=client_.get(i);bool pinched=h&&bool(h->flags&XR_HAND_PINCH);
+            hand_press|=hp[i]&&previous_hand_valid_[i]&&pinched&&!previous_pinch_[i];
+            previous_hand_valid_[i]=hp[i];previous_pinch_[i]=pinched;
+            previous_buttons_[i]=buttons;previous_valid_[i]=valid;
+        }
+        switch_.frame(cp[0]||cp[1],hp[0]||hp[1],activity,controller_press,hand_press,left_.interacting()||right_.interacting());
+        left_.publish();right_.publish();
+        switch_.report(cp[0],cp[1],hp[0],hp[1],left_.blocked(),right_.blocked());
         auto p=client_.packet();if (p.sequence!=last_ && (p.sequence<3 || p.sequence>=last_logged_+100)) {
             ovrd_log("XR_HAND_STATE seq=%llu left=%d right=%d age_ms=%.2f\n",(unsigned long long)p.sequence,client_.get(0).has_value(),client_.get(1).has_value(),double(xr::hand::Client::now()-p.exposure_boottime_ns)/1e6);last_logged_=p.sequence;
         }
@@ -175,6 +220,7 @@ private:
         }cJSON_Delete(root);return valid;
     }
     A081ControllerPosePair controllers_;XRInputSwitch switch_;vr::HmdMatrix34_t physical_grip_{},physical_aim_{};
-    vr::DriverPose_t previous_pose_[2]{};bool previous_valid_[2]{};
+    vr::DriverPose_t previous_pose_[2]{};bool previous_valid_[2]{},previous_hand_valid_[2]{},previous_pinch_[2]{};
+    uint64_t motion_since_[2]{};unsigned previous_buttons_[2]{},press_edges_[2]{};
     xr::hand::Client client_;Device left_,right_;bool enabled_{};uint64_t last_{},last_logged_{};
 };

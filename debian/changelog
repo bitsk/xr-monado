@@ -1,3 +1,9 @@
+monado-xr (25.0.0+xr8) unstable; urgency=medium
+
+  * Separate button release gates and preserve deliberate input across source handoff.
+
+ -- bits <bigbits@hackx.cc>  Sat, 14 Nov 2026 14:31:48 +0800
+
 monado-xr (25.0.0+xr7) unstable; urgency=medium
 
   * Advance presentation orientation with observed IMU during camera RPC stalls.
