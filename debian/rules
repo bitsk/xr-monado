@@ -1,5 +1,9 @@
 #!/usr/bin/make -f
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export RUSTFLAGS := $(RUSTFLAGS) --remap-path-prefix=$(CURDIR)=/usr/src/xr-monado
+ifneq ($(strip $(CARGO_HOME)),)
+export RUSTFLAGS += --remap-path-prefix=$(abspath $(CARGO_HOME))=/usr/src/cargo
+endif
 %:
 	dh $@ --buildsystem=cmake
 override_dh_auto_configure:
