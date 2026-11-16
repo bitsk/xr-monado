@@ -1,3 +1,10 @@
+monado-xr (25.0.0+xr10) unstable; urgency=medium
+
+  * Rebuild the pose bridge with anchor-scoped IMU history gap validation.
+  * Require the head development interface containing the advancement fix.
+
+ -- bits <bigbits@hackx.cc>  Tue, 17 Nov 2026 02:17:32 +0800
+
 monado-xr (25.0.0+xr9) unstable; urgency=medium
 
   * Move stereo camera projection into an explicit XROS OpenXR runtime layer.
