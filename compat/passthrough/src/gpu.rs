@@ -87,13 +87,6 @@ impl Buffer {
         }
         Ok(())
     }
-    pub fn read(&self) -> Result<Vec<u8>> {
-        unsafe {
-            let result =
-                std::slice::from_raw_parts(self.mapped as *const u8, self.size as usize).to_vec();
-            Ok(result)
-        }
-    }
 }
 impl Drop for Buffer {
     fn drop(&mut self) {

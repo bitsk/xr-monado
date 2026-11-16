@@ -80,12 +80,17 @@ template<class H,class T> static std::shared_ptr<T> find(const std::unordered_ma
 static bool enabled(const std::shared_ptr<Instance> &i,XrSystemId system) {
     if(!i->enabled) return false;
     XrSystemProperties p{XR_TYPE_SYSTEM_PROPERTIES};
-    return XR_SUCCEEDED(i->GetSystemProperties(i->handle,system,&p)) && p.graphicsProperties.maxLayerCount>=2;
+    if(XR_FAILED(i->GetSystemProperties(i->handle,system,&p)) || p.graphicsProperties.maxLayerCount<2) return false;
+    uint32_t n=0;
+    if(XR_FAILED(i->EnumerateEnvironmentBlendModes(i->handle,system,XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,0,&n,nullptr)))return false;
+    std::vector<XrEnvironmentBlendMode> modes(n);
+    if(XR_FAILED(i->EnumerateEnvironmentBlendModes(i->handle,system,XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,n,&n,modes.data())))return false;
+    return std::find(modes.begin(),modes.end(),XR_ENVIRONMENT_BLEND_MODE_OPAQUE)!=modes.end();
 }
 static XrResult XRAPI_CALL get_system_properties(XrInstance instance,XrSystemId system,XrSystemProperties *p) {
     auto i=find(instances,instance); if(!i) return XR_ERROR_HANDLE_INVALID;
     auto r=i->GetSystemProperties(instance,system,p);
-    if(XR_SUCCEEDED(r) && i->enabled && p->graphicsProperties.maxLayerCount>=2) --p->graphicsProperties.maxLayerCount;
+    if(XR_SUCCEEDED(r) && enabled(i,system)) --p->graphicsProperties.maxLayerCount;
     return r;
 }
 static XrResult XRAPI_CALL blend_modes(XrInstance instance,XrSystemId system,XrViewConfigurationType type,

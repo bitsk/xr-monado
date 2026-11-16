@@ -796,10 +796,6 @@ impl Passthrough {
         }
     }
 
-    pub fn motion_enabled(&self) -> bool {
-        self.motion_compensation == MotionCompensation::DequeueRotation
-    }
-
     pub fn reset_pose_history(&mut self) {
         self.pose_history.0.clear();
     }
