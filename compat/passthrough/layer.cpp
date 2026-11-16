@@ -222,13 +222,21 @@ static XrResult XRAPI_CALL end_frame(XrSession session,const XrFrameEndInfo *inf
     auto &i=*s->i;
     if(!s->camera) return i.EndFrame(session,info);
     if(s->failed) return XR_ERROR_RUNTIME_FAILURE;
-    if(s->reset_at && info->displayTime>=s->reset_at) {xros_camera_reset(s->camera);s->reset_at=0;}
+    if(s->reset_at && info->displayTime>=s->reset_at) {
+        xros_camera_reset(s->camera);
+        if(!i.ConvertTimespecTimeToTimeKHR)s->reset_at=0;
+    }
     // The history is stamped with converted CLOCK_MONOTONIC, never predicted display time.
     if(i.ConvertTimespecTimeToTimeKHR && s->stereo) {
         timespec now{};clock_gettime(CLOCK_MONOTONIC,&now);XrTime time=0;
         XrView v[2]={{XR_TYPE_VIEW},{XR_TYPE_VIEW}};XrViewState state{XR_TYPE_VIEW_STATE};
         if(XR_SUCCEEDED(i.ConvertTimespecTimeToTimeKHR(i.handle,&now,&time)) && XR_SUCCEEDED(locate(*s,time,v,state))) {
-            auto eyes=pack(v);xros_camera_observe(s->camera,eyes.data(),state.viewStateFlags,uint64_t(now.tv_sec)*1000000000+now.tv_nsec);
+            if(s->reset_at && time>=s->reset_at) {xros_camera_reset(s->camera);s->reset_at=0;}
+            // A predicted frame can cross the recenter boundary before "now".
+            // Do not mix a pre-change sample with post-change projection poses.
+            if(!s->reset_at || info->displayTime<s->reset_at) {
+                auto eyes=pack(v);xros_camera_observe(s->camera,eyes.data(),state.viewStateFlags,uint64_t(now.tv_sec)*1000000000+now.tv_nsec);
+            }
         } else xros_camera_reset(s->camera);
     }
     if(info->environmentBlendMode!=XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND) {
@@ -242,7 +250,8 @@ static XrResult XRAPI_CALL end_frame(XrSession session,const XrFrameEndInfo *inf
     if(!info->layers) return XR_ERROR_VALIDATION_FAILURE;
     XrView views[2]={{XR_TYPE_VIEW},{XR_TYPE_VIEW}};XrViewState state{XR_TYPE_VIEW_STATE};
     XR_TRY(locate(*s,info->displayTime,views,state));
-    if(!(state.viewStateFlags&XR_VIEW_STATE_ORIENTATION_VALID_BIT)) {
+    const auto valid=XR_VIEW_STATE_ORIENTATION_VALID_BIT|XR_VIEW_STATE_POSITION_VALID_BIT;
+    if((state.viewStateFlags&valid)!=valid) {
         xros_camera_reset(s->camera);xros_camera_idle(s->camera);return i.EndFrame(session,&frame);
     }
     std::array<uint32_t,2> indices{};Acquired acquired{*s};
@@ -301,6 +310,9 @@ static XrResult XRAPI_CALL destroy_instance(XrInstance instance) {
 }
 static XrResult XRAPI_CALL get_proc(XrInstance instance,const char *name,PFN_xrVoidFunction *out) {
     if(!name || !out)return XR_ERROR_VALIDATION_FAILURE;
+    if(!std::strcmp(name,"xrGetInstanceProcAddr")) {
+        *out=reinterpret_cast<PFN_xrVoidFunction>(get_proc);return XR_SUCCESS;
+    }
     auto i=find(instances,instance);if(!i){*out=nullptr;return XR_ERROR_HANDLE_INVALID;}
 #define ENTRY(n,f) if(!std::strcmp(name,"xr" #n)){*out=reinterpret_cast<PFN_xrVoidFunction>(f);return XR_SUCCESS;}
     ENTRY(GetInstanceProcAddr,get_proc) ENTRY(GetSystemProperties,get_system_properties)

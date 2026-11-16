@@ -125,7 +125,7 @@ pub unsafe extern "C" fn xros_camera_create(
     };
     match run() {
         Ok(mut c) => {
-            c.status(true, false, true);
+            c.status(false, false, true);
             Box::into_raw(Box::new(c)).cast()
         }
         Err(e) => {
