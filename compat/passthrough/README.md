@@ -30,7 +30,8 @@ under `/usr/lib/<multiarch>/xr/passthrough`. Installation activates no layers.
 ## Activation
 
 The session manager owns activation via the profile's optional `passthrough`
-object (`config` absolute path, `sha256` of that private file). The existing
+object (`config` absolute path). Runtime activation uses installed paths and
+normal file ownership/permissions; it has no content-digest selector. The existing
 version-2 calibration schema is unchanged; calibration is never shipped here.
 The manager configures the existing camera producer and supplies:
 
@@ -70,8 +71,21 @@ history at the change time. This is dequeue timing, not exposure synchronization
 translation/depth reprojection is not implemented. Physical camera extrinsics,
 colour calibration, motion comfort and display scanout still require device tests.
 
-Current acceptance scope is offline build and existing projection math tests.
-A MIX run must check discovery, opaque/alpha toggling, independent source counters
-for both eyes, head/controller/hand continuity, recenter, stale-source behavior,
-exit/re-entry and desktop restoration. A second OpenXR client must also exercise
-the same blend contract. Wearer image alignment remains a separate acceptance.
+The ARM64 package has been deployed on MIX. HyperSpace exercised alpha/opaque
+switching, stopped snapshot reads while opaque, and resumed advancing distinct
+source counters for both eyes. A stock Khronos `hello_xr` Vulkan2/AlphaBlend client
+also submitted advancing stereo camera backgrounds and exited normally. That
+sample does not enable the clock-conversion extension, so its rotation
+compensation correctly remained inactive. The wearer confirmed the real scene
+and floating desktop were visible with no obvious abnormality in a brief check.
+
+Normal scene/runtime shutdown and desktop restoration passed, including after
+path-only session configuration replaced digest-pinned startup. Head observation,
+controller services and the optional hand service remained active; physical
+controller/gesture accuracy was not reaccepted. The existing tracking producer
+still exits nonzero on shutdown (`tracking_capture`), despite successful scene
+cleanup and zero remaining FastRPC objects; the overall session validation gate
+is therefore not passed. Native seated/standing reset requests completed but no
+OpenXR reference-space event was observed in HyperSpace, so recenter acceptance
+remains open. Stale-source fault behavior, physical calibration, exposure alignment
+and long-duration motion comfort have not been validated on this combination.
