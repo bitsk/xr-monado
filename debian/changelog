@@ -1,3 +1,10 @@
+monado-xr (25.0.0+xr9) unstable; urgency=medium
+
+  * Move stereo camera projection into an explicit XROS OpenXR runtime layer.
+  * Provide alpha environment blending without device code in HyperSpace.
+
+ -- bits <bigbits@hackx.cc>  Mon, 16 Nov 2026 17:26:14 +0800
+
 monado-xr (25.0.0+xr8) unstable; urgency=medium
 
   * Separate button release gates and preserve deliberate input across source handoff.

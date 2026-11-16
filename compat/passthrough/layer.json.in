@@ -1,0 +1,10 @@
+{
+  "file_format_version": "1.0.0",
+  "api_layer": {
+    "name": "XR_APILAYER_XROS_passthrough",
+    "library_path": "@XROS_LAYER_LIBRARY@",
+    "api_version": "1.0",
+    "implementation_version": "1",
+    "description": "XROS runtime stereo camera environment blending"
+  }
+}
