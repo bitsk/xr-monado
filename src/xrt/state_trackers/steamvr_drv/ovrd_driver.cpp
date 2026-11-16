@@ -45,6 +45,7 @@ extern "C" {
 #include "b_ovrd_generated_bindings.h"
 }
 #include "math/m_vec3.h"
+#include "qiyu_hmd_profile.h"
 #include "a081_controller_openvr.hpp"
 #include "xr_hand_openvr.hpp"
 
@@ -1287,12 +1288,12 @@ CDeviceDriver_Monado::Activate(vr::TrackedDeviceIndex_t unObjectId)
 	// avoid "not fullscreen" warnings from vrmonitor
 	//vr::VRProperties()->SetBoolProperty(m_ulPropertyContainer, vr::Prop_IsOnDesktop_Bool, false);
 
-	if (strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0) {
+	if (qiyu_profile_for_serial(m_xdev->serial) != nullptr) {
 		vr::VRProperties()->SetBoolProperty(m_ulPropertyContainer, vr::Prop_IsOnDesktop_Bool, IsDisplayOnDesktop());
 		vr::VRProperties()->SetBoolProperty(m_ulPropertyContainer, vr::Prop_HasDisplayComponent_Bool, true);
 		vr::VRProperties()->SetBoolProperty(m_ulPropertyContainer, vr::Prop_HasDriverDirectModeComponent_Bool, false);
 		vr::VRProperties()->SetBoolProperty(m_ulPropertyContainer, vr::Prop_HasVirtualDisplayComponent_Bool, false);
-		ovrd_log("A081 display component: desktop=%d, driver direct mode=0, virtual display=0\n", IsDisplayOnDesktop());
+		ovrd_log("%s display component: desktop=%d, driver direct mode=0, virtual display=0\n", m_xdev->str, IsDisplayOnDesktop());
 	}
 
 	// clang-format on
@@ -1359,7 +1360,7 @@ CDeviceDriver_Monado::DebugRequest(const char *request, char *response, uint32_t
 {
     if (!response || !size) return;
     response[0]='\0';
-    if (request && strcmp(request,"a081-pose-timing")==0 && strcmp(m_xdev->serial,"A081-LINUX-IIO")==0)
+    if (request && strcmp(request,"a081-pose-timing")==0 && qiyu_profile_for_serial(m_xdev->serial) != nullptr)
         a081_qvr_pose_timing(m_xdev,response,size);
 }
 
@@ -1383,7 +1384,7 @@ CDeviceDriver_Monado::GetPose()
 	timepoint_ns now_ns = os_monotonic_get_ns();
 	struct xrt_space_relation rel;
 	int64_t sample_ns = now_ns;
-	bool raw_qvr = strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0 && m_xdev->supported.position_tracking;
+	bool raw_qvr = qiyu_profile_for_serial(m_xdev->serial) != nullptr && m_xdev->supported.position_tracking;
 	if (raw_qvr)
 		a081_qvr_latest_pose(m_xdev, &rel, &sample_ns);
 	else
@@ -1418,9 +1419,9 @@ CDeviceDriver_Monado::GetPose()
 	    .result = vr::TrackingResult_Running_OK,
 	    .poseIsValid = (rel.relation_flags & XRT_SPACE_RELATION_ORIENTATION_VALID_BIT) != 0,
 	    .willDriftInYaw = !m_xdev->supported.position_tracking,
-	    // A081 supplies measured orientation only; do not synthesize neck motion.
+	    // The Qiyu IMU-only mode must not synthesize neck motion.
 	    .shouldApplyHeadModel = !m_xdev->supported.position_tracking &&
-	                            strcmp(m_xdev->serial, "A081-LINUX-IIO") != 0,
+	                            qiyu_profile_for_serial(m_xdev->serial) == nullptr,
 	    .deviceIsConnected = true,
 	};
 	apply_pose(&rel, &t);
@@ -1459,8 +1460,8 @@ CDeviceDriver_Monado::GetPose()
 void
 CDeviceDriver_Monado::GetWindowBounds(int32_t *pnX, int32_t *pnY, uint32_t *pnWidth, uint32_t *pnHeight)
 {
-	// A081's complete panel starts at zero; it is not a second desktop monitor.
-	*pnX = strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0 ? 0 : 1920;
+	// The Qiyu panel occupies the complete display.
+	*pnX = qiyu_profile_for_serial(m_xdev->serial) != nullptr ? 0 : 1920;
 	*pnY = 0;
 
 	*pnWidth = m_xdev->hmd->screens[0].w_pixels;
@@ -1473,7 +1474,7 @@ CDeviceDriver_Monado::GetWindowBounds(int32_t *pnX, int32_t *pnY, uint32_t *pnWi
 bool
 CDeviceDriver_Monado::IsDisplayOnDesktop()
 {
-	return strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0 && debug_get_bool_option_a081_steamvr_extended();
+	return qiyu_profile_for_serial(m_xdev->serial) != nullptr && debug_get_bool_option_a081_steamvr_extended();
 }
 
 bool
@@ -1490,9 +1491,9 @@ CDeviceDriver_Monado::GetRecommendedRenderTargetSize(uint32_t *pnWidth, uint32_t
 
 
 
-	if (strcmp(m_xdev->serial, "A081-LINUX-IIO") == 0) {
+	if (qiyu_profile_for_serial(m_xdev->serial) != nullptr) {
 		// Render dimensions precede the existing per-eye panel rotation. These
-		// are the A081 bring-up dimensions, not newly calibrated lens geometry.
+		// come from the selected board optical profile.
 		*pnWidth = std::max(m_xdev->hmd->views[0].display.w_pixels,
 		                   m_xdev->hmd->views[1].display.w_pixels) * fscale;
 		*pnHeight = std::max(m_xdev->hmd->views[0].display.h_pixels,
@@ -1690,8 +1691,8 @@ CServerDriver_Monado::Init(vr::IVRDriverContext *pDriverContext)
 		ovrd_log("Added right Controller: %s\n", right_xdev->str);
 	}
 
-	if (!(m_xr_hands.requested() ? m_xr_hands.configure(strcmp(m_xhmd->serial, "A081-LINUX-IIO") == 0) :
-	      m_a081_pose_controllers.configure(strcmp(m_xhmd->serial, "A081-LINUX-IIO") == 0)))
+	if (!(m_xr_hands.requested() ? m_xr_hands.configure(qiyu_profile_for_serial(m_xhmd->serial) != nullptr) :
+	      m_a081_pose_controllers.configure(qiyu_profile_for_serial(m_xhmd->serial) != nullptr)))
 		return vr::VRInitError_Driver_Failed;
 	return vr::VRInitError_None;
 }
@@ -1710,7 +1711,7 @@ CServerDriver_Monado::Cleanup()
 	xrt_system_devices_destroy(&m_xsysd);
 	xrt_system_destroy(&m_xsys);
 	m_xhmd = NULL;
-	// A081 currently supplies an HMD only, without either controller.
+	// Physical controllers and optical hands register through the shared pose clients above.
 	if (m_left != NULL) {
 		m_left->m_xdev = NULL;
 	}

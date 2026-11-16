@@ -1,0 +1,54 @@
+{
+  "format": "qiyu-stock-optics-profile-v1",
+  "device": "iQIYI Qiyu DREAM PRO VR700",
+  "stock_config_sha256": "77e29042f0b9d2e441c2f9db6b5d66e5f31492f5eeac99309355b9398f3d01e1",
+  "stock_config": "system/etc/qvr/svrapi_config.txt",
+  "eye_pixels": [
+    1832,
+    1920
+  ],
+  "panel_pixels": [
+    1920,
+    3664
+  ],
+  "panel_refresh_hz": 72,
+  "display_mm": [
+    60.1812,
+    63.072
+  ],
+  "frustum_display_mm": [
+    77.4746528,
+    77.4746528
+  ],
+  "frustum_near_m": 0.0578449,
+  "frustum_half_extent_m": [
+    0.0594416876,
+    0.0594416876
+  ],
+  "display_fov_degrees": [
+    91.55999999977858,
+    91.55999999977858
+  ],
+  "nominal_ipd_m": 0.0634,
+  "polynomial_even": [
+    1,
+    0.213878493,
+    -0.015922299,
+    0.152495336
+  ],
+  "rgb_scale": [
+    0.9965,
+    1,
+    1.004
+  ],
+  "mesh_position_scale": [
+    1.28735639701435,
+    1.2283525621511922
+  ],
+  "mapping": "Existing SXR reference samplePoint mapping, with VR700 stock parameters: rotate panel UV once in OpenVR adapter; x=2u-1,y=2v-1; r2=x*x+(1920/1832*y)^2; RGB UV=0.5+0.5*(x/sx,y/sy)*P(r2)*rgb_scale. Preserve outside-image UV. Display FOV is used, not *_mesh FOV.",
+  "basis": "VR700 stock config has zero lens offsets, unit lens scale, inverse=false and even polynomial. The panel timing matches the independent VR700 kernel driver. This parameterization does not establish equivalence to the shipped Android warp implementation.",
+  "physical_optics_verified": false,
+  "stock_binary_equivalence_verified": false,
+  "wearer_ipd_measured": false,
+  "tracking_calibration": "Per-device camera/IMU calibration remains a private producer input; no MIX calibration is included."
+}

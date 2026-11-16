@@ -11,7 +11,7 @@ Vcs-Browser: https://github.com/bitsk/xr-monado
 Package: xr-monado-steamvr-driver
 Architecture: arm64
 Depends: ${misc:Depends}, ${shlibs:Depends}
-Description: Independent A081 SteamVR provider
+Description: Independent Qiyu SteamVR provider
  Independently maintained XR component for openKylin integration.
 
 Package: xr-native-interop

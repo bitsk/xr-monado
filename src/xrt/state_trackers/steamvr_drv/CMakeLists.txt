@@ -6,6 +6,7 @@ add_subdirectory(steamvr_bindings)
 add_library(st_ovrd STATIC ovrd_driver.cpp ovrd_interface.h)
 
 target_include_directories(st_ovrd INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(st_ovrd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../targets/common)
 target_link_libraries(
 	st_ovrd
 	PRIVATE

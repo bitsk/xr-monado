@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BSL-1.0
 #pragma once
+#include "qiyu_hmd_profile.h"
 #include <xr/controller/production-v2/a081_controller_pose_wire.h>
 #include <atomic>
 #include <cerrno>
@@ -32,6 +33,7 @@ public:
         bool grip_touch;
     };
 private:
+    bool vr700 = false;
     // Vendor bits in a081_controller_pose_packet.controls, from right-hand
     // presses; face0 is A/X, face1 B/Y. Full travel is index 9, middle 10.
     static constexpr uint32_t button_face0 = 0x10, button_face1 = 0x20, button_system = 0x40, button_joystick = 0x80;
@@ -46,7 +48,8 @@ private:
             auto p = vr::VRProperties()->TrackedDeviceToPropertyContainer(object);
             vr::VRProperties()->SetStringProperty(p, vr::Prop_TrackingSystemName_String, "monado");
             vr::VRProperties()->SetStringProperty(p, vr::Prop_ModelNumber_String,
-                hand ? "Qiyu MIX Right Controller" : "Qiyu MIX Left Controller");
+                owner.vr700 ? (hand ? "Qiyu VR700 Right Controller" : "Qiyu VR700 Left Controller") :
+                (hand ? "Qiyu MIX Right Controller" : "Qiyu MIX Left Controller"));
             vr::VRProperties()->SetStringProperty(p, vr::Prop_SerialNumber_String, serial());
             vr::VRProperties()->SetStringProperty(p, vr::Prop_ManufacturerName_String, "iQIYI");
             vr::VRProperties()->SetInt32Property(p, vr::Prop_ControllerRoleHint_Int32,
@@ -89,11 +92,11 @@ private:
         {
             if (!size) return;
             auto p = GetPose();
-            std::snprintf(response, size, "A081 SDK pose hand=%u connected=%d valid=%d; no optical/coordinate acceptance implied",
+            std::snprintf(response, size, "Qiyu SDK pose hand=%u connected=%d valid=%d; no optical/coordinate acceptance implied",
                           hand, p.deviceIsConnected, p.poseIsValid);
         }
         vr::DriverPose_t GetPose() override { return owner.pose(hand); }
-        const char *serial() const { return hand ? "A081-STOCK-CONTROLLER-R" : "A081-STOCK-CONTROLLER-L"; }
+        const char *serial() const { return owner.vr700 ? (hand ? "VR700-STOCK-CONTROLLER-R" : "VR700-STOCK-CONTROLLER-L") : (hand ? "A081-STOCK-CONTROLLER-R" : "A081-STOCK-CONTROLLER-L"); }
         void publish()
         {
             auto id = index.load();
@@ -142,17 +145,19 @@ private:
 public:
     A081ControllerPosePair() : left(*this, 0), right(*this, 1) {}
     ~A081ControllerPosePair() { close_source(); }
-    bool configure(bool a081_head, bool register_devices = true)
+    bool configure(bool native_head, bool register_devices = true)
     {
         const char *requested = std::getenv("A081_CONTROLLER_POSE_SOCKET");
         if (!requested || !*requested) return true; // baseline HMD-only path
         const char *profile = std::getenv("A081_CONTROLLER_POSE_PROFILE");
-        if (!a081_head || !profile || std::strcmp(profile, "openvr-head-raw-v1") ||
+        const auto board = qiyu_selected_profile();
+        if (!native_head || !board || !profile || std::strcmp(profile, "openvr-head-raw-v1") ||
             std::strncmp(requested, "/run/a081-controller-pose-", 26) ||
             std::strlen(requested) >= sizeof(path) || std::strstr(requested, "/../")) {
-            ovrd_log("A081 controller pose refused: exact A081 HMD, private /run socket and explicit profile required\n");
+            ovrd_log("A081 controller pose refused: matching Qiyu HMD, private /run socket and explicit profile required\n");
             return false;
         }
+        vr700 = !std::strcmp(board->device, "vr700");
         std::strcpy(path, requested);
         enabled = true;
         if (!register_devices) return true;

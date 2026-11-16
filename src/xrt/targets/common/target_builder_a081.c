@@ -32,7 +32,7 @@ struct xrt_builder *t_builder_a081_create(void)
 {
 	struct t_builder *b = U_TYPED_CALLOC(struct t_builder);
 	b->base.estimate_system = estimate; b->base.open_system = t_builder_open_system_static_roles;
-	b->base.destroy = destroy_builder; b->base.identifier = "a081"; b->base.name = "A081 Linux IIO";
+	b->base.destroy = destroy_builder; b->base.identifier = "a081"; b->base.name = "Qiyu Linux tracking";
 	b->base.driver_identifiers = drivers; b->base.driver_identifier_count = 1;
 	b->open_system_static_roles = open_system;
 	return &b->base;

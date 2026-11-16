@@ -434,14 +434,16 @@ static void destroy(struct xrt_device *xdev)
 bool a081_present(void)
 {
 	char model[128];
-	return read_text("/proc/device-tree/model", model, sizeof(model)) && strstr(model, "A081");
+	const struct qiyu_hmd_profile *profile = qiyu_selected_profile();
+	return profile && read_text("/proc/device-tree/model", model, sizeof(model)) && strstr(model, profile->dt_model);
 }
 
 struct xrt_device *a081_create(void)
 {
 	if (!a081_present() || !getenv("A081_BRINGUP") || strcmp(getenv("A081_BRINGUP"), "1")) {
-		U_LOG_E("A081 real hardware and explicit A081_BRINGUP=1 required"); return NULL;
+		U_LOG_E("Matching Qiyu hardware, XR_DEVICE=a081|vr700 and A081_BRINGUP=1 required"); return NULL;
 	}
+	const struct qiyu_hmd_profile *profile = qiyu_selected_profile();
 	struct a081 *d = U_DEVICE_ALLOCATE(struct a081, U_DEVICE_ALLOC_HMD | U_DEVICE_ALLOC_TRACKING_NONE, 1, 0);
 	d->accel.fd = d->gyro.fd = d->lock_fd = -1;
 	atomic_init(&d->running, false);
@@ -479,8 +481,8 @@ struct xrt_device *a081_create(void)
 	}
 	struct xrt_device *xdev = &d->base;
 	xdev->name = XRT_DEVICE_GENERIC_HMD; xdev->device_type = XRT_DEVICE_TYPE_HMD;
-	snprintf(xdev->str, sizeof(xdev->str), "Qiyu MIX A081 %s (uncalibrated)", d->stock_pose ? "QVR experimental 6DoF" : d->stock_stream ? "QVR input 3DoF" : "real IIO 3DoF");
-	snprintf(xdev->serial, sizeof(xdev->serial), "A081-LINUX-IIO");
+	snprintf(xdev->str, sizeof(xdev->str), "%s %s (uncalibrated)", profile->model, d->stock_pose ? "QVR experimental 6DoF" : d->stock_stream ? "QVR input 3DoF" : "real IIO 3DoF");
+	snprintf(xdev->serial, sizeof(xdev->serial), "%s", profile->serial);
 	xdev->inputs[0].name = XRT_INPUT_GENERIC_HEAD_POSE;
 	xdev->supported.orientation_tracking = true; xdev->supported.position_tracking = d->stock_pose;
 	xdev->tracking_origin->type = XRT_TRACKING_TYPE_OTHER;
@@ -497,15 +499,15 @@ struct xrt_device *a081_create(void)
 		xdev->hmd->views[i].viewport.x_pixels = 0; xdev->hmd->views[i].viewport.y_pixels = 1832 * i;
 		xdev->hmd->views[i].viewport.w_pixels = 1920; xdev->hmd->views[i].viewport.h_pixels = 1832;
 		xdev->hmd->views[i].rot = u_device_rotation_right;
-		xdev->hmd->distortion.fov[i] = (struct xrt_fov){-atanf(.0609f/.0578449f), atanf(.0609f/.0578449f),
-		                                                        atanf(.068f/.0578449f), -atanf(.068f/.0578449f)};
+		xdev->hmd->distortion.fov[i] = (struct xrt_fov){-atanf(profile->frustum_half_width_m/.0578449f), atanf(profile->frustum_half_width_m/.0578449f),
+		                                                        atanf(profile->frustum_half_height_m/.0578449f), -atanf(profile->frustum_half_height_m/.0578449f)};
 	}
 	a081_setup_optics(xdev);
-	U_LOG_I("A081 stock optical map: display FOV, RGB polynomial, panel overscan scale; physical acceptance pending");
+	U_LOG_I("%s stock optical map: display FOV, RGB polynomial, panel overscan scale; physical acceptance pending", profile->model);
 	if (d->stock_pose)
-		U_LOG_W("A081 experimental QVR pose: SDK android-portrait-v1, raw tracker origin (IMU-reference assumed), metric scale from factory calibration; physical axes/scale/eye offset/accuracy uncalibrated; OEM motion state for runtime prediction");
+		U_LOG_W("%s experimental QVR pose: SDK android-portrait-v1, raw tracker origin (IMU-reference assumed), metric scale from factory calibration; physical axes/scale/eye offset/accuracy uncalibrated; OEM motion state for runtime prediction", profile->model);
 	else
-		U_LOG_W("A081 bring-up: source=%s; real IMU 3DoF, provisional optics, NO position or controllers", d->stock_stream ? "qvr-stream" : "iio");
+		U_LOG_W("%s bring-up: source=%s; real IMU 3DoF, provisional optics, no positional head tracking", profile->model, d->stock_stream ? "qvr-stream" : "iio");
 	atomic_store(&d->running, true);
 	if (pthread_create(&d->thread, NULL, d->stock_stream ? read_tracking_stream : read_imu, d)) { destroy(xdev); return NULL; }
 	d->started = true;

@@ -207,7 +207,9 @@ public:
     void cleanup() {enabled_=false;controllers_.cleanup();client_.reset();left_.Deactivate();right_.Deactivate();}
 private:
     bool load_physical_anchors(){
-        const char *dir=std::getenv("XR_CONTROLLER_MODEL_DIR");std::string path=dir?dir:"/usr/share/xr/devices/a081/controllers";path+="/controller-anchors.json";
+        const char *dir=std::getenv("XR_CONTROLLER_MODEL_DIR");
+        const auto profile=qiyu_selected_profile();if(!profile)return false;
+        std::string path=dir?dir:std::string("/usr/share/xr/devices/")+profile->device+"/controllers";path+="/controller-anchors.json";
         std::ifstream f(path);std::string text((std::istreambuf_iterator<char>(f)),{});auto root=cJSON_Parse(text.c_str());if(!root)return false;
         auto anchors=cJSON_GetObjectItemCaseSensitive(root,"anchors");bool valid=true;
         const std::array<std::pair<const char *,vr::HmdMatrix34_t *>,2> transforms{{{"grip",&physical_grip_},{"aim",&physical_aim_}}};
