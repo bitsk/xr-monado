@@ -7,3 +7,11 @@ Copyright: See original source file and license notices
 License: BSL-1.0
  See the repository license files and individual file headers.
  Third-party notices and licenses remain applicable.
+
+Files: compat/passthrough/*
+Copyright: Project contributors; see Git history and individual source notices
+License: GPL-3.0-or-later
+ On Debian systems the complete license text is available at
+ /usr/share/common-licenses/GPL-3.
+Comment: Camera projection migrated from xr-shell with its original license.
+ Cargo dependencies retain their upstream licenses and source distributions.
