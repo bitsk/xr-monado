@@ -64,5 +64,17 @@
     "header_sha256": "bc1e391a48273b1865055f4b21849cc367db24be53219fa76da6ac117917e467",
     "patched_source_sha256": "a4903538cdba2c097d4e22ed86f01b8e205d1209df8629969b6c1ce63fb7506d",
     "scope": "Explicit private-session display guard; observation and raw validity acceptance remain unchanged"
+  },
+  "package_observer": {
+    "patch": "pose-watch-vr700.patch",
+    "patch_sha256": "63d70226049ab41393f75cb996ecf9e87ee425d85d0af3cf58553e124471a938",
+    "patched_source_sha256": "7c5f3bb3631b9a602053f74a1382a44bc03c608837322e0c4b15c952b0ab7a3f",
+    "installed_path": "usr/lib/aarch64-linux-gnu/xr/monado/pose-watch",
+    "external_source_environment": "XR_POSE_WATCH_SOURCE",
+    "devices": [
+      "a081",
+      "vr700"
+    ],
+    "scope": "Explicit VR700 identity and runtime model; raw validity and cleanup acceptance unchanged"
   }
 }
