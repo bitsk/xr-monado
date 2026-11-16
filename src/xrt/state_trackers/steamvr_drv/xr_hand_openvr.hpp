@@ -84,7 +84,7 @@ private:
         }
         vr::DriverPose_t GetPose() override {
             auto source=pair_.switch_.source();
-            if(source==XRInputSwitch::Controllers){auto p=pair_.controllers_.pose(hand_);p.deviceIsConnected=true;return p;}
+            if(source==XRInputSwitch::Controllers && pair_.physical_anchors_valid_){auto p=pair_.controllers_.pose(hand_);p.deviceIsConnected=true;return p;}
             vr::DriverPose_t pose{};pose.qWorldFromDriverRotation.w=1;pose.qDriverFromHeadRotation.w=1;pose.qRotation.w=1;
             pose.deviceIsConnected=true;pose.result=vr::TrackingResult_Running_OutOfRange;
             xr_hand_packet snapshot{};auto h=pair_.client_.get(hand_,&snapshot);if (source!=XRInputSwitch::Hands || !h) return pose;
@@ -96,10 +96,10 @@ private:
         void publish() {
             auto index=index_.load();if (index==vr::k_unTrackedDeviceIndexInvalid) return;
             auto source=pair_.switch_.source();auto h=source==XRInputSwitch::Hands?pair_.client_.get(hand_):std::nullopt;
-            auto physical=source==XRInputSwitch::Controllers?pair_.controllers_.inputs(hand_):A081ControllerPosePair::Inputs{};
+            auto physical=source==XRInputSwitch::Controllers && pair_.physical_anchors_valid_?pair_.controllers_.inputs(hand_):A081ControllerPosePair::Inputs{};
             auto input=vr::VRDriverInput();
             const auto now=uint64_t(os_monotonic_get_ns());
-            bool valid=h.has_value()||(source==XRInputSwitch::Controllers&&pair_.controllers_.pose(hand_).poseIsValid&&pair_.controllers_.controls_valid(hand_));
+            bool valid=h.has_value()||(source==XRInputSwitch::Controllers&&pair_.physical_anchors_valid_&&pair_.controllers_.pose(hand_).poseIsValid&&pair_.controllers_.controls_valid(hand_));
             if(generation_!=pair_.switch_.generation()){
                 generation_=pair_.switch_.generation();gate_.reset();last_skeleton_=0;pending_mask_=0;
                 if(pair_.switch_.button_takeover()){
@@ -137,7 +137,7 @@ private:
                     input->UpdateSkeletonComponent(skeleton_,vr::VRSkeletalMotionRange_WithoutController,bones,31);input->UpdateSkeletonComponent(skeleton_,vr::VRSkeletalMotionRange_WithController,bones,31);last_skeleton_=pair_.client_.packet().sequence;}}
                 vr::HmdMatrix34_t identity{};for(unsigned i=0;i<3;++i)identity.m[i][i]=1;auto aim=relative(h->grip,h->aim);
                 input->UpdatePoseComponent(grip_,&identity,0);input->UpdatePoseComponent(aim_,&aim,0);input->UpdatePoseComponent(legacy_grip_,&identity,0);input->UpdatePoseComponent(legacy_aim_,&aim,0);
-            }else if(source==XRInputSwitch::Controllers){
+            }else if(source==XRInputSwitch::Controllers && pair_.physical_anchors_valid_){
                 // Controller-derived reference skeleton, never stale optical bones.
                 auto bones=hand_?rightOpenPose:leftOpenPose;input->UpdateSkeletonComponent(skeleton_,vr::VRSkeletalMotionRange_WithoutController,bones,31);input->UpdateSkeletonComponent(skeleton_,vr::VRSkeletalMotionRange_WithController,bones,31);
                 input->UpdatePoseComponent(grip_,&pair_.physical_grip_,0);input->UpdatePoseComponent(aim_,&pair_.physical_aim_,0);input->UpdatePoseComponent(legacy_grip_,&pair_.physical_grip_,0);input->UpdatePoseComponent(legacy_aim_,&pair_.physical_aim_,0);
@@ -161,14 +161,21 @@ public:
     bool configure(bool native_head) {
         if (!requested()) return true;
         if (!native_head || !client_.configure(std::getenv("XR_HAND_STATE_SOCKET"))) return false;
-        if(!controllers_.configure(native_head,false)||!load_physical_anchors())return false;
+        // Optical hand grip/aim are measured by the hand producer and do not
+        // depend on a physical controller's model geometry. Missing anchors
+        // disable that source; never publish zero/borrowed controller offsets.
+        physical_anchors_valid_=load_physical_anchors();
+        if(physical_anchors_valid_ && !controllers_.configure(native_head,false))return false;
+        ovrd_log("XR_HAND_INPUT controller_aim_available=%d reason=%s\n",physical_anchors_valid_,
+            physical_anchors_valid_?"calibrated_geometry":"physical_controller_geometry_unavailable");
         enabled_=vr::VRServerDriverHost()->TrackedDeviceAdded(left_.serial(),vr::TrackedDeviceClass_Controller,&left_) && vr::VRServerDriverHost()->TrackedDeviceAdded(right_.serial(),vr::TrackedDeviceClass_Controller,&right_);
         ovrd_log("XR_HAND_INPUT registered=%d source=live-shared-camera pose=grip+aim gestures=pinch+grab\n",enabled_);return enabled_;
     }
     void frame() {
         if (!enabled_) return;
-        controllers_.frame(false);client_.update();
-        bool cp[2]={controllers_.pose(0).poseIsValid,controllers_.pose(1).poseIsValid};bool hp[2]={client_.get(0).has_value(),client_.get(1).has_value()};
+        if(physical_anchors_valid_)controllers_.frame(false);
+        client_.update();
+        bool cp[2]={physical_anchors_valid_&&controllers_.pose(0).poseIsValid,physical_anchors_valid_&&controllers_.pose(1).poseIsValid};bool hp[2]={client_.get(0).has_value(),client_.get(1).has_value()};
         const auto now=uint64_t(os_monotonic_get_ns());
         bool activity=false,controller_press=false,hand_press=false;
         for(unsigned i=0;i<2;++i){
@@ -198,13 +205,13 @@ public:
         }
         switch_.frame(cp[0]||cp[1],hp[0]||hp[1],activity,controller_press,hand_press,left_.interacting()||right_.interacting());
         left_.publish();right_.publish();
-        switch_.report(cp[0],cp[1],hp[0],hp[1],left_.blocked(),right_.blocked());
+        switch_.report(cp[0],cp[1],hp[0],hp[1],left_.blocked(),right_.blocked(),physical_anchors_valid_);
         auto p=client_.packet();if (p.sequence!=last_ && (p.sequence<3 || p.sequence>=last_logged_+100)) {
             ovrd_log("XR_HAND_STATE seq=%llu left=%d right=%d age_ms=%.2f\n",(unsigned long long)p.sequence,client_.get(0).has_value(),client_.get(1).has_value(),double(xr::hand::Client::now()-p.exposure_boottime_ns)/1e6);last_logged_=p.sequence;
         }
         last_=p.sequence;
     }
-    void cleanup() {enabled_=false;controllers_.cleanup();client_.reset();left_.Deactivate();right_.Deactivate();}
+    void cleanup() {enabled_=false;physical_anchors_valid_=false;controllers_.cleanup();client_.reset();left_.Deactivate();right_.Deactivate();}
 private:
     bool load_physical_anchors(){
         const char *dir=std::getenv("XR_CONTROLLER_MODEL_DIR");
@@ -224,5 +231,5 @@ private:
     A081ControllerPosePair controllers_;XRInputSwitch switch_;vr::HmdMatrix34_t physical_grip_{},physical_aim_{};
     vr::DriverPose_t previous_pose_[2]{};bool previous_valid_[2]{},previous_hand_valid_[2]{},previous_pinch_[2]{};
     uint64_t motion_since_[2]{};unsigned previous_buttons_[2]{},press_edges_[2]{};
-    xr::hand::Client client_;Device left_,right_;bool enabled_{};uint64_t last_{},last_logged_{};
+    xr::hand::Client client_;Device left_,right_;bool enabled_{},physical_anchors_valid_{};uint64_t last_{},last_logged_{};
 };

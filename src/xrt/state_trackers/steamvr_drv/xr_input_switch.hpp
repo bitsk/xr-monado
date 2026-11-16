@@ -65,11 +65,11 @@ public:
         }
     }
     uint64_t generation()const{return generation_;}
-    void report(bool c0,bool c1,bool h0,bool h1,unsigned blocked0,unsigned blocked1){
+    void report(bool c0,bool c1,bool h0,bool h1,unsigned blocked0,unsigned blocked1,bool controller_aim_available=true){
         uint64_t now=os_monotonic_get_ns();if(now<report_after_)return;report_after_=now+100000000ULL;
         const char *path=std::getenv("XR_INPUT_STATUS_FILE");if(!path||!*path)return;
         std::string tmp=std::string(path)+".tmp";FILE *f=std::fopen(tmp.c_str(),"w");if(!f)return;
-        auto s=source();std::fprintf(f,"{\"schema\":1,\"observed_monotonic_ns\":%llu,\"generation\":%llu,\"active_source\":\"%s\",\"mode\":\"%s\",\"reason\":\"%s\",\"neutral\":%s,\"blocked_buttons\":[%u,%u],\"controllers\":[%s,%s],\"hands\":[%s,%s]}\n",(unsigned long long)now,(unsigned long long)generation_,s==Hands?"hands":s==Controllers?"controllers":"none",mode_.c_str(),reason_,neutral()?"true":"false",blocked0,blocked1,c0?"true":"false",c1?"true":"false",h0?"true":"false",h1?"true":"false");std::fclose(f);std::rename(tmp.c_str(),path);
+        auto s=source();std::fprintf(f,"{\"schema\":1,\"observed_monotonic_ns\":%llu,\"generation\":%llu,\"active_source\":\"%s\",\"mode\":\"%s\",\"reason\":\"%s\",\"neutral\":%s,\"blocked_buttons\":[%u,%u],\"controllers\":[%s,%s],\"hands\":[%s,%s],\"controller_aim_available\":%s}\n",(unsigned long long)now,(unsigned long long)generation_,s==Hands?"hands":s==Controllers?"controllers":"none",mode_.c_str(),reason_,neutral()?"true":"false",blocked0,blocked1,c0?"true":"false",c1?"true":"false",h0?"true":"false",h1?"true":"false",controller_aim_available?"true":"false");std::fclose(f);std::rename(tmp.c_str(),path);
     }
 private:
     void read(uint64_t now){
