@@ -1,3 +1,11 @@
+monado-xr (25.0.0+xr11) unstable; urgency=medium
+
+  * Keep recovery pose and prediction velocities consistent.
+  * Retain controller ownership and fresh buttons through optical tracking loss.
+  * Expose fresh physical system-button state for Shell-local recentering.
+
+ -- bits <bigbits@hackx.cc>  Tue, 17 Nov 2026 09:55:33 +0800
+
 monado-xr (25.0.0+xr10) unstable; urgency=medium
 
   * Rebuild the pose bridge with anchor-scoped IMU history gap validation.

@@ -179,12 +179,25 @@ a081_head_recovery_update(struct a081_head_recovery *s, struct m_imu_3dof *fusio
 			struct xrt_quat correction, identity = {0, 0, 0, 1};
 			math_quat_slerp(&identity, &s->orientation_error, weight, &correction);
 			math_quat_rotate(&correction, &measured.pose.orientation, &s->output.pose.orientation);
+			// Differentiate the same world-space correction used for the pose.
+			// Suppressing velocity here makes runtime prediction disappear for
+			// 200ms, then jump back when tracking becomes fully trusted again.
+			struct xrt_quat error = s->orientation_error;
+			if (error.w < 0.f) {
+				error.x = -error.x; error.y = -error.y;
+				error.z = -error.z; error.w = -error.w;
+			}
+			float sine = sqrtf(error.x * error.x + error.y * error.y + error.z * error.z);
+			float scale = sine > 1e-6f ? 2.f * atan2f(sine, error.w) * derivative / sine : 2.f * derivative;
+			math_quat_rotate_vec3(&correction, &measured.angular_velocity, &s->output.angular_velocity);
+			s->output.angular_velocity.x += error.x * scale;
+			s->output.angular_velocity.y += error.y * scale;
+			s->output.angular_velocity.z += error.z * scale;
 			if (t < 1.f) {
 				s->mode = A081_HEAD_RECOVERING;
-				s->output.relation_flags &= ~(XRT_SPACE_RELATION_POSITION_TRACKED_BIT |
-				                              XRT_SPACE_RELATION_ANGULAR_VELOCITY_VALID_BIT |
-				                              XRT_SPACE_RELATION_LINEAR_VELOCITY_VALID_BIT);
-				// No compositor prediction using an uncorrected angular velocity.
+				s->output.relation_flags &= ~XRT_SPACE_RELATION_POSITION_TRACKED_BIT;
+				// Pose and both velocities now describe the same corrected state.
+				// Position remains inferred until the correction has completed.
 				a081_head_anchor(s, fusion);
 				return true;
 			}

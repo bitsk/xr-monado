@@ -46,12 +46,13 @@ public:
         if(active_){
             if(mode_=="controllers"){desired=Controllers;reason_="manual";}
             else if(mode_=="hands"){desired=hands_?Hands:None;reason_="manual";}
-            else if(held&&((current==Controllers&&controllers)||(current==Hands&&hands&&hands_))){desired=current;reason_="interaction_held";}
             else if(controllers&&controller_press){desired=Controllers;reason_="controller_press";}
-            else if(ready&&hand_press){desired=Hands;reason_="hand_pinch";}
+            else if(held&&((current==Controllers&&controllers)||(current==Hands&&hands&&hands_))){desired=current;reason_="interaction_held";}
+            else if(ready&&hand_press&&(!controllers||!last_controller_||now-last_controller_>=2000000000ULL)){desired=Hands;reason_="deliberate_hand_pinch";}
             else if(current==Hands&&hands&&hands_&&!activity){desired=Hands;reason_="hands_active";}
-            else if(controllers&&last_controller_&&now-last_controller_<800000000ULL){desired=Controllers;reason_="controller_activity";}
-            else if(ready){desired=Hands;reason_="hands_ready";}
+            else if(controllers&&current==Controllers){desired=Controllers;reason_="controller_owned";}
+            else if(controllers&&last_controller_&&now-last_controller_<2000000000ULL){desired=Controllers;reason_="controller_activity";}
+            else if(ready&&!controllers){desired=Hands;reason_="hands_ready";}
             else if(controllers){desired=Controllers;reason_="controller_available";}
         }
         if(desired!=candidate_){candidate_=desired;candidate_since_=now;}
@@ -65,11 +66,11 @@ public:
         }
     }
     uint64_t generation()const{return generation_;}
-    void report(bool c0,bool c1,bool h0,bool h1,unsigned blocked0,unsigned blocked1,bool controller_aim_available=true){
+    void report(bool c0,bool c1,bool h0,bool h1,unsigned blocked0,unsigned blocked1,bool controller_aim_available=true, bool controls0=false, bool controls1=false, bool home0=false, bool home1=false){
         uint64_t now=os_monotonic_get_ns();if(now<report_after_)return;report_after_=now+100000000ULL;
         const char *path=std::getenv("XR_INPUT_STATUS_FILE");if(!path||!*path)return;
         std::string tmp=std::string(path)+".tmp";FILE *f=std::fopen(tmp.c_str(),"w");if(!f)return;
-        auto s=source();std::fprintf(f,"{\"schema\":1,\"observed_monotonic_ns\":%llu,\"generation\":%llu,\"active_source\":\"%s\",\"mode\":\"%s\",\"reason\":\"%s\",\"neutral\":%s,\"blocked_buttons\":[%u,%u],\"controllers\":[%s,%s],\"hands\":[%s,%s],\"controller_aim_available\":%s}\n",(unsigned long long)now,(unsigned long long)generation_,s==Hands?"hands":s==Controllers?"controllers":"none",mode_.c_str(),reason_,neutral()?"true":"false",blocked0,blocked1,c0?"true":"false",c1?"true":"false",h0?"true":"false",h1?"true":"false",controller_aim_available?"true":"false");std::fclose(f);std::rename(tmp.c_str(),path);
+        auto s=source();std::fprintf(f,"{\"schema\":1,\"observed_monotonic_ns\":%llu,\"generation\":%llu,\"active_source\":\"%s\",\"mode\":\"%s\",\"reason\":\"%s\",\"neutral\":%s,\"blocked_buttons\":[%u,%u],\"controllers\":[%s,%s],\"hands\":[%s,%s],\"controller_aim_available\":%s,\"controls_valid\":[%s,%s],\"system_buttons\":[%s,%s]}\n",(unsigned long long)now,(unsigned long long)generation_,s==Hands?"hands":s==Controllers?"controllers":"none",mode_.c_str(),reason_,neutral()?"true":"false",blocked0,blocked1,c0?"true":"false",c1?"true":"false",h0?"true":"false",h1?"true":"false",controller_aim_available?"true":"false",controls0?"true":"false",controls1?"true":"false",home0?"true":"false",home1?"true":"false");std::fclose(f);std::rename(tmp.c_str(),path);
     }
 private:
     void read(uint64_t now){

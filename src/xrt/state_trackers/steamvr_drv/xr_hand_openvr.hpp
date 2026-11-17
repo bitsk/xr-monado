@@ -99,7 +99,7 @@ private:
             auto physical=source==XRInputSwitch::Controllers && pair_.physical_anchors_valid_?pair_.controllers_.inputs(hand_):A081ControllerPosePair::Inputs{};
             auto input=vr::VRDriverInput();
             const auto now=uint64_t(os_monotonic_get_ns());
-            bool valid=h.has_value()||(source==XRInputSwitch::Controllers&&pair_.physical_anchors_valid_&&pair_.controllers_.pose(hand_).poseIsValid&&pair_.controllers_.controls_valid(hand_));
+            bool valid=h.has_value()||(source==XRInputSwitch::Controllers&&pair_.physical_anchors_valid_&&pair_.controllers_.controls_valid(hand_));
             if(generation_!=pair_.switch_.generation()){
                 generation_=pair_.switch_.generation();gate_.reset();last_skeleton_=0;pending_mask_=0;
                 if(pair_.switch_.button_takeover()){
@@ -178,9 +178,12 @@ public:
         bool cp[2]={physical_anchors_valid_&&controllers_.pose(0).poseIsValid,physical_anchors_valid_&&controllers_.pose(1).poseIsValid};bool hp[2]={client_.get(0).has_value(),client_.get(1).has_value()};
         const auto now=uint64_t(os_monotonic_get_ns());
         bool activity=false,controller_press=false,hand_press=false;
+        bool cv[2]={controllers_.controls_valid(0),controllers_.controls_valid(1)};
+        bool home[2]={false,false};
         for(unsigned i=0;i<2;++i){
             auto v=controllers_.inputs(i);auto p=controllers_.pose(i);
-            bool valid=cp[i]&&controllers_.controls_valid(i);
+            bool valid=cv[i];
+            home[i]=valid&&v.system_click;
             float values[6]={v.trigger_value,v.grip_value,float(v.face0_click),float(v.face1_click),float(v.system_click),float(v.joystick_click)};
             unsigned buttons=previous_buttons_[i];
             for(unsigned j=0;j<6;++j){if(values[j]<=.35f)buttons&=~(1u<<j);else if(values[j]>=.65f)buttons|=1u<<j;}
@@ -190,22 +193,26 @@ public:
             // Integrate movement over a short window. Touch and frame-to-frame
             // noise cannot indefinitely refresh controller priority.
             bool moved=false;
-            if(valid&&previous_valid_[i]&&now-motion_since_[i]>=200000000ULL){
+            if(cp[i]&&previous_pose_valid_[i]&&now-motion_since_[i]>=200000000ULL){
                 double d=0;for(unsigned j=0;j<3;++j)d+=std::pow(p.vecPosition[j]-previous_pose_[i].vecPosition[j],2);
                 double q=p.qRotation.w*previous_pose_[i].qRotation.w+p.qRotation.x*previous_pose_[i].qRotation.x+p.qRotation.y*previous_pose_[i].qRotation.y+p.qRotation.z*previous_pose_[i].qRotation.z;
                 moved=d>.000625||std::fabs(q)<.9961947; // 25 mm or 10 degrees
-                previous_pose_[i]=p;motion_since_[i]=now;
+                if(moved){previous_pose_[i]=p;motion_since_[i]=now;}
             }
-            if(!valid||!previous_valid_[i]){previous_pose_[i]=p;motion_since_[i]=now;}
-            activity|=press_edges_[i]!=0||stick||moved;
+            if(!cp[i]||!previous_pose_valid_[i]){previous_pose_[i]=p;motion_since_[i]=now;}
+            previous_pose_valid_[i]=cp[i];
+            // Fresh capacitive/analog contact is evidence of a held controller,
+            // independent of optical pose validity. Slow movement accumulates.
+            bool contact=valid&&(v.face0_touch||v.face1_touch||v.joystick_touch||v.trigger_touch||v.grip_touch);
+            activity|=press_edges_[i]!=0||stick||moved||contact;
             auto h=client_.get(i);bool pinched=h&&bool(h->flags&XR_HAND_PINCH);
             hand_press|=hp[i]&&previous_hand_valid_[i]&&pinched&&!previous_pinch_[i];
             previous_hand_valid_[i]=hp[i];previous_pinch_[i]=pinched;
             previous_buttons_[i]=buttons;previous_valid_[i]=valid;
         }
-        switch_.frame(cp[0]||cp[1],hp[0]||hp[1],activity,controller_press,hand_press,left_.interacting()||right_.interacting());
+        switch_.frame(cv[0]||cv[1],hp[0]||hp[1],activity,controller_press,hand_press,left_.interacting()||right_.interacting());
         left_.publish();right_.publish();
-        switch_.report(cp[0],cp[1],hp[0],hp[1],left_.blocked(),right_.blocked(),physical_anchors_valid_);
+        switch_.report(cp[0],cp[1],hp[0],hp[1],left_.blocked(),right_.blocked(),physical_anchors_valid_,cv[0],cv[1],home[0],home[1]);
         auto p=client_.packet();if (p.sequence!=last_ && (p.sequence<3 || p.sequence>=last_logged_+100)) {
             ovrd_log("XR_HAND_STATE seq=%llu left=%d right=%d age_ms=%.2f\n",(unsigned long long)p.sequence,client_.get(0).has_value(),client_.get(1).has_value(),double(xr::hand::Client::now()-p.exposure_boottime_ns)/1e6);last_logged_=p.sequence;
         }
@@ -229,7 +236,7 @@ private:
         }cJSON_Delete(root);return valid;
     }
     A081ControllerPosePair controllers_;XRInputSwitch switch_;vr::HmdMatrix34_t physical_grip_{},physical_aim_{};
-    vr::DriverPose_t previous_pose_[2]{};bool previous_valid_[2]{},previous_hand_valid_[2]{},previous_pinch_[2]{};
+    vr::DriverPose_t previous_pose_[2]{};bool previous_valid_[2]{},previous_pose_valid_[2]{},previous_hand_valid_[2]{},previous_pinch_[2]{};
     uint64_t motion_since_[2]{};unsigned previous_buttons_[2]{},press_edges_[2]{};
     xr::hand::Client client_;Device left_,right_;bool enabled_{},physical_anchors_valid_{};uint64_t last_{},last_logged_{};
 };
