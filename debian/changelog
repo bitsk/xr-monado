@@ -1,3 +1,11 @@
+monado-xr (25.0.0+xr17) unstable; urgency=medium
+
+  * Publish coherent OEM high-rate poses directly, including orientation-only
+    quality states; remove the competing recovery filter and blend policies.
+  * Keep position confidence independent of orientation drift reporting.
+
+ -- bits <bigbits@hackx.cc>  Tue, 17 Nov 2026 20:17:09 +0800
+
 monado-xr (25.0.0+xr16) unstable; urgency=medium
 
   * Publish the MIX factory eye-center origin with matching linear velocity.

@@ -1438,7 +1438,7 @@ CDeviceDriver_Monado::GetPose()
 			t.result = vr::TrackingResult_Running_OutOfRange;
 		else if (!(rel.relation_flags & XRT_SPACE_RELATION_POSITION_TRACKED_BIT)) {
 			t.result = vr::TrackingResult_Fallback_RotationOnly;
-			t.willDriftInYaw = true;
+			// Position confidence does not change the OEM orientation source.
 		}
 	}
 

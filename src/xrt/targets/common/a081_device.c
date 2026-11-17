@@ -10,7 +10,6 @@
 #include "util/u_logging.h"
 #include <xr/head/production-v2/a081_tracking_client.h>
 #include <xr/head/production-v2/a081_qvr_pose.h>
-#include "a081_tracking_recovery.h"
 #include "a081_eye_origin.h"
 #include <xr/head/production-v2/a081_imu_history.h>
 #include <sys/mman.h>
@@ -55,7 +54,6 @@ struct a081 {
 	uint64_t fused_samples;
 	bool stock_stream, stock_pose;
 	struct xrt_space_relation stock_relation;
-	struct a081_head_recovery recovery;
 	uint64_t positive_poses;
 	char tracking_socket[108];
 	char imu_history_path[512];
@@ -208,7 +206,7 @@ done:
 static void reset_stream_tracking(struct a081 *d)
 {
 	pthread_mutex_lock(&d->mutex);
-	a081_head_recovery_reset(&d->recovery, &d->fusion);
+	m_imu_3dof_reset(&d->fusion);
 	d->fused_samples = 0;
 	d->fused_time_ns = 0;
 	d->stream_start_ns = 0;
@@ -243,8 +241,8 @@ static void *read_tracking_stream(void *ptr)
 			if (rc < 0) { disconnected = true; break; }
 			bool same_session = session == packet.session_id;
 			if (!same_session) reset_stream_tracking(d);
-			// A sequence gap does not erase a world origin: recovery checks the
-			// actual IMU interval and refuses integration over a long gap.
+			// A sequence gap does not erase a world origin. The next coherent
+			// OEM pose owns its state; live advancement checks its own interval.
 			if (same_session && (packet.sequence <= sequence || packet.gyro_boottime_ns <= last_gyro)) {
 				disconnected = true; break;
 			}
@@ -256,14 +254,16 @@ static void *read_tracking_stream(void *ptr)
 			}
 			if (d->stock_pose) {
 				pthread_mutex_lock(&d->mutex);
-				enum a081_head_mode before = d->recovery.mode;
-				bool valid = a081_head_recovery_update(&d->recovery, &d->fusion, &packet, now);
-				struct xrt_space_relation relation = d->recovery.output;
+				const enum xrt_space_relation_flags before = d->stock_relation.relation_flags;
+				struct xrt_space_relation relation;
+				bool valid = a081_qvr_pose(&packet, now, &relation);
+				// The OEM high-rate estimator already carries its own IMU,
+				// visual corrections and quality. Publish one estimator rather
+				// than switching to a second filter on position-quality changes.
 				d->stock_relation = relation;
-				if (before != d->recovery.mode)
-					U_LOG_I("A081_HEAD_MODE=%s previous=%s seq=%lu raw_valid=%d relation_flags=%u",
-					        a081_head_mode_name(d->recovery.mode), a081_head_mode_name(before),
-					        packet.sequence, valid, (unsigned)relation.relation_flags);
+				if (before != relation.relation_flags)
+					U_LOG_I("A081_HEAD_STATE seq=%lu raw_valid=%d relation_flags=%u position_quality=%g",
+					        packet.sequence, valid, (unsigned)relation.relation_flags, packet.pose_quality);
 				d->fused_time_ns = (int64_t)packet.sample_monotonic_ns;
 				++d->stream_packets;
 				if (packet.flags & A081_TRACKING_RAW_POSE) ++d->stock_pose_packets;
@@ -316,7 +316,7 @@ static void *read_tracking_stream(void *ptr)
 // SteamVR remains the only owner of prediction beyond that timestamp.
 static void advance_live_imu(struct a081 *d, struct xrt_space_relation *out, int64_t *sample_ns, int64_t now)
 {
-    if (!d->imu_history_path[0] || d->recovery.mode != A081_HEAD_TRACKED ||
+    if (!d->imu_history_path[0] ||
         !(out->relation_flags & XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT)) return;
     if (d->imu_history && a081_imu_load(&d->imu_history->magic) != A081_IMU_HISTORY_MAGIC) {
         munmap(d->imu_history,sizeof(*d->imu_history)); d->imu_history=NULL;
@@ -381,8 +381,11 @@ void a081_qvr_pose_timing(struct xrt_device *xdev, char *buffer, unsigned size)
 {
     struct a081 *d=(struct a081 *)xdev;
     pthread_mutex_lock(&d->mutex);
+    const unsigned flags = d->stock_relation.relation_flags;
+    const char *mode = (flags & XRT_SPACE_RELATION_POSITION_TRACKED_BIT) ? "tracked" :
+                       (flags & XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT) ? "orientation_only" : "lost";
     snprintf(buffer,size,"{\"mode\":\"%s\",\"advanced_queries\":%llu,\"anchor_mono_ns\":%llu,\"state_mono_ns\":%llu,\"query_mono_ns\":%llu,\"raw_anchor_mono_ns\":%lld,\"prediction_owner\":\"SteamVR\",\"physical_verified\":false}",
-             a081_head_mode_name(d->recovery.mode),(unsigned long long)d->imu_advance_count,
+             mode,(unsigned long long)d->imu_advance_count,
              (unsigned long long)d->imu_anchor_ns,(unsigned long long)d->imu_state_ns,
              (unsigned long long)d->imu_query_ns,(long long)d->fused_time_ns);
     pthread_mutex_unlock(&d->mutex);
