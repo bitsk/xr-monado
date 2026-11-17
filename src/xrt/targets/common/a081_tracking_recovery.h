@@ -24,7 +24,7 @@ struct a081_head_recovery {
 	uint64_t last_imu_ns, last_tracked_ns, stable_since_ns, blend_since_ns;
 	bool anchored, translation_stopped;
 	struct xrt_space_relation output;
-	struct xrt_vec3 last_position, velocity, accel_bias, gyro_bias, position_error;
+	struct xrt_vec3 last_position, velocity, accel_bias, position_error;
 	struct xrt_quat fusion_to_world, orientation_error;
 };
 
@@ -62,13 +62,9 @@ a081_head_infer(struct a081_head_recovery *s, const struct m_imu_3dof *fusion,
 	              struct xrt_vec3 accel, struct xrt_vec3 gyro, uint64_t time, uint64_t previous)
 {
 	math_quat_rotate(&s->fusion_to_world, &fusion->rot, &s->output.pose.orientation);
-	// Apply gyro bias compensation to angular velocity output
-	struct xrt_vec3 corrected_gyro = {
-	    gyro.x - s->gyro_bias.x,
-	    gyro.y - s->gyro_bias.y,
-	    gyro.z - s->gyro_bias.z
-	};
-	math_quat_rotate_vec3(&s->output.pose.orientation, &corrected_gyro, &s->output.angular_velocity);
+	// Use the same gyro as fusion: an output-only correction would make
+	// the reported velocity disagree with the integrated orientation.
+	math_quat_rotate_vec3(&s->output.pose.orientation, &gyro, &s->output.angular_velocity);
 	s->output.relation_flags = XRT_SPACE_RELATION_ORIENTATION_VALID_BIT |
 	                           XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT |
 	                           XRT_SPACE_RELATION_ANGULAR_VELOCITY_VALID_BIT |
@@ -165,9 +161,10 @@ a081_head_recovery_update(struct a081_head_recovery *s, struct m_imu_3dof *fusio
 				math_quat_rotate(&s->output.pose.orientation, &inverse, &s->orientation_error);
 				// Large map corrections should not drag the world through the user.
 				// Withdraw validity, then require a fresh stable localization.
-				// Relaxed from 10° to 20° to avoid false resets during rapid head turns.
+				// Quaternion w is cos(angle/2): this limits map correction to 20 degrees,
+				// not head turn speed. It is unrelated to the prediction horizon.
 				if (a081_head_length(s->position_error) > .25f ||
-				    fabsf(s->orientation_error.w) < .93969f) { // cos(20°) ≈ 0.94
+				    fabsf(s->orientation_error.w) < .98480775f) {
 					a081_head_recovery_reset(s, fusion);
 					return true;
 				}
@@ -217,10 +214,9 @@ a081_head_recovery_update(struct a081_head_recovery *s, struct m_imu_3dof *fusio
 	s->last_position = measured.pose.position;
 	s->velocity = measured.linear_velocity;
 	a081_head_anchor(s, fusion);
-	// Learn accelerometer and gyroscope residuals only from trusted, nearly stationary poses.
+	// Learn accelerometer residual only from trusted, nearly stationary poses.
 	// This is volatile filter state; it never overwrites device calibration.
 	if (dt > 0 && a081_head_length(measured.linear_velocity) < .05f && a081_head_length(gyro) < .08f) {
-		// Learn accelerometer bias
 		struct xrt_vec3 world;
 		math_quat_rotate_vec3(&measured.pose.orientation, &accel, &world);
 		world.y -= 9.80665f;
@@ -229,17 +225,6 @@ a081_head_recovery_update(struct a081_head_recovery *s, struct m_imu_3dof *fusio
 			s->accel_bias.x += alpha * (world.x - s->accel_bias.x);
 			s->accel_bias.y += alpha * (world.y - s->accel_bias.y);
 			s->accel_bias.z += alpha * (world.z - s->accel_bias.z);
-		}
-		// Learn gyroscope bias from OEM angular velocity vs raw gyro difference
-		// The OEM estimator already performs bias compensation internally; learn the residual.
-		struct xrt_vec3 oem_gyro;
-		math_quat_rotate_vec3(&measured.pose.orientation, &measured.angular_velocity, &oem_gyro);
-		struct xrt_vec3 gyro_error = {gyro.x - oem_gyro.x, gyro.y - oem_gyro.y, gyro.z - oem_gyro.z};
-		if (a081_head_length(gyro_error) < 0.35f) { // Only learn if residual is plausible
-			float alpha_gyro = fminf(0.1f, dt); // Slower learning rate for gyro
-			s->gyro_bias.x += alpha_gyro * (gyro_error.x - s->gyro_bias.x);
-			s->gyro_bias.y += alpha_gyro * (gyro_error.y - s->gyro_bias.y);
-			s->gyro_bias.z += alpha_gyro * (gyro_error.z - s->gyro_bias.z);
 		}
 	}
 	return true;

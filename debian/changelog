@@ -1,3 +1,11 @@
+monado-xr (25.0.0+xr14) unstable; urgency=medium
+
+  * Remove unverified gyro bias learning and keep recovery velocity consistent
+    with the orientation integrator.
+  * Restore the 20-degree map-correction limit and document its quaternion angle.
+
+ -- bits <bigbits@hackx.cc>  Tue, 17 Nov 2026 14:06:50 +0800
+
 monado-xr (25.0.0+xr13) unstable; urgency=medium
 
   * Fix MIX motion judder: add gyro bias learning and relax recovery threshold.
