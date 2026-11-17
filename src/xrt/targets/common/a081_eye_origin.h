@@ -3,6 +3,7 @@
 
 #include "xrt/xrt_defines.h"
 #include "math/m_api.h"
+#include "qiyu_hmd_profile.h"
 
 // The MIX SDK applies gSensorHeadOffset after its portrait-to-view conversion,
 // before recentering. In the existing android-portrait-v1 XR convention its
@@ -12,8 +13,10 @@
 // p_eye = p_sdk + h = p_body + R*h. The SDK's constant world-origin shift
 // -h must not be applied only to the head while other tracked points stay raw.
 // Factory svrapi_config.txt: gSensorHeadOffset{X,Y,Z}, in metres.
-// The DSP/body record, recovery state and observed-IMU anchor remain unchanged.
-// Apply this once, after advancement, to a presentation copy of that relation.
+// This conversion is for the measured XRT head endpoint. The OpenVR bridge
+// instead publishes body state plus DriverFromHead: its runtime applies the
+// rigid translation after future prediction, rather than predicting an
+// already shifted eye position along a tangent.
 static inline void
 a081_eye_center_relation(struct xrt_space_relation *relation)
 {
@@ -21,7 +24,8 @@ a081_eye_center_relation(struct xrt_space_relation *relation)
 	    XRT_SPACE_RELATION_ORIENTATION_VALID_BIT | XRT_SPACE_RELATION_POSITION_VALID_BIT;
 	if ((relation->relation_flags & pose_valid) != pose_valid) return;
 
-	const struct xrt_vec3 h = {-.057022f, .032557f, .068516f};
+	const float *offset = qiyu_a081_profile.body_to_eye_m;
+	const struct xrt_vec3 h = {offset[0], offset[1], offset[2]};
 	struct xrt_vec3 arm;
 	math_quat_rotate_vec3(&relation->pose.orientation, &h, &arm);
 	relation->pose.position.x += arm.x;

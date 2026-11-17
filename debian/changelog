@@ -1,3 +1,12 @@
+monado-xr (25.0.0+xr18) unstable; urgency=medium
+
+  * Publish MIX tracker-body state with a static DriverFromHead extrinsic,
+    so the runtime applies the eye-center transform after future prediction.
+  * Pair pose timing diagnostics with every returned body state, including
+    unadvanced and invalid queries.
+
+ -- bits <bigbits@hackx.cc>  Wed, 18 Nov 2026 00:09:28 +0800
+
 monado-xr (25.0.0+xr17) unstable; urgency=medium
 
   * Publish coherent OEM high-rate poses directly, including orientation-only

@@ -60,6 +60,8 @@ struct a081 {
 	struct a081_imu_history *imu_history;
 	int64_t imu_retry_ns;
 	uint64_t imu_advance_count, imu_anchor_ns, imu_state_ns, imu_query_ns;
+	unsigned imu_query_flags;
+	bool imu_query_advanced;
 	uint64_t stream_packets, stock_pose_packets;
 	int64_t stream_start_ns;
 };
@@ -350,12 +352,13 @@ static void advance_live_imu(struct a081 *d, struct xrt_space_relation *out, int
         out->pose.position.y += out->linear_velocity.y*dt;
         out->pose.position.z += out->linear_velocity.z*dt;
     }
-    d->imu_advance_count++; d->imu_anchor_ns=*sample_ns; d->imu_state_ns=latest; d->imu_query_ns=now;
+    d->imu_advance_count++;
     *sample_ns=(int64_t)latest;
 }
 
-// Private SteamVR bridge returns the tracked anchor plus observed live IMU,
-// with a matching state epoch. Raw OEM tracking packets are never rewritten.
+// Private SteamVR bridge returns body state at its observed IMU epoch.
+// The static body-to-eye extrinsic is owned by the OpenVR binding so its
+// runtime applies it after prediction. Raw OEM packets are never rewritten.
 bool a081_qvr_latest_pose(struct xrt_device *xdev, struct xrt_space_relation *out, int64_t *sample_ns)
 {
 	struct a081 *d = (struct a081 *)xdev;
@@ -365,13 +368,22 @@ bool a081_qvr_latest_pose(struct xrt_device *xdev, struct xrt_space_relation *ou
 	int64_t now = os_monotonic_get_ns();
 	int64_t age = now - d->fused_time_ns;
 	*sample_ns = now;
+	const uint64_t advances_before = d->imu_advance_count;
+	d->imu_anchor_ns = d->fused_time_ns > 0 ? (uint64_t)d->fused_time_ns : 0;
 	if (atomic_load(&d->running) && age >= 0 && age < 100000000) {
 		*out = d->stock_relation;
 		*sample_ns = d->fused_time_ns;
+		// OpenVR predicts this body state, then applies DriverFromHead once.
+		// Do not pre-shift to the eyes or pre-add their tangential velocity.
 		advance_live_imu(d,out,sample_ns,now);
-		if (qiyu_profile_for_serial(xdev->serial) == &qiyu_a081_profile)
-			a081_eye_center_relation(out);
 	}
+	// Record every returned state, including unadvanced or invalid queries.
+	// A "last successful advancement" snapshot can belong to an older anchor
+	// and cannot be joined to the compositor's current prediction request.
+	d->imu_state_ns = (out->relation_flags & XRT_SPACE_RELATION_ORIENTATION_VALID_BIT) ? *sample_ns : 0;
+	d->imu_query_ns = os_monotonic_get_ns();
+	d->imu_query_flags = out->relation_flags;
+	d->imu_query_advanced = d->imu_advance_count != advances_before;
 	pthread_mutex_unlock(&d->mutex);
 	return true;
 }
@@ -381,13 +393,14 @@ void a081_qvr_pose_timing(struct xrt_device *xdev, char *buffer, unsigned size)
 {
     struct a081 *d=(struct a081 *)xdev;
     pthread_mutex_lock(&d->mutex);
-    const unsigned flags = d->stock_relation.relation_flags;
+    const unsigned flags = d->imu_query_flags;
     const char *mode = (flags & XRT_SPACE_RELATION_POSITION_TRACKED_BIT) ? "tracked" :
                        (flags & XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT) ? "orientation_only" : "lost";
-    snprintf(buffer,size,"{\"mode\":\"%s\",\"advanced_queries\":%llu,\"anchor_mono_ns\":%llu,\"state_mono_ns\":%llu,\"query_mono_ns\":%llu,\"raw_anchor_mono_ns\":%lld,\"prediction_owner\":\"SteamVR\",\"physical_verified\":false}",
+    snprintf(buffer,size,"{\"mode\":\"%s\",\"advanced_queries\":%llu,\"anchor_mono_ns\":%llu,\"state_mono_ns\":%llu,\"query_mono_ns\":%llu,\"raw_anchor_mono_ns\":%llu,\"producer_anchor_mono_ns\":%lld,\"relation_flags\":%u,\"advanced\":%s,\"state_reference\":\"tracker_body\",\"head_transform\":\"runtime_post_prediction\",\"prediction_owner\":\"SteamVR\",\"physical_verified\":false}",
              mode,(unsigned long long)d->imu_advance_count,
              (unsigned long long)d->imu_anchor_ns,(unsigned long long)d->imu_state_ns,
-             (unsigned long long)d->imu_query_ns,(long long)d->fused_time_ns);
+             (unsigned long long)d->imu_query_ns,(unsigned long long)d->imu_anchor_ns,
+             (long long)d->fused_time_ns,flags,d->imu_query_advanced ? "true" : "false");
     pthread_mutex_unlock(&d->mutex);
 }
 
@@ -516,7 +529,7 @@ struct xrt_device *a081_create(void)
 	U_LOG_I("%s stock optical map: display FOV, RGB polynomial, panel overscan scale; physical acceptance pending", profile->model);
 	if (d->stock_pose)
 		U_LOG_W("%s experimental QVR pose: SDK android-portrait-v1, %s; metric scale from factory calibration; physical acceptance pending; OEM motion state for runtime prediction", profile->model,
-		        profile == &qiyu_a081_profile ? "factory body-to-eye-center position and velocity after observed IMU advancement, shared tracking world" : "raw tracking origin");
+		        profile == &qiyu_a081_profile ? "factory body-to-eye extrinsic, shared tracking world; OpenVR applies it after prediction" : "raw tracking origin");
 	else
 		U_LOG_W("%s bring-up: source=%s; real IMU 3DoF, provisional optics, no positional head tracking", profile->model, d->stock_stream ? "qvr-stream" : "iio");
 	atomic_store(&d->running, true);

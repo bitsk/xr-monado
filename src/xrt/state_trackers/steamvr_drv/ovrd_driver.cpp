@@ -1278,8 +1278,8 @@ CDeviceDriver_Monado::Activate(vr::TrackedDeviceIndex_t unObjectId)
 	vr::VRProperties()->SetStringProperty(m_ulPropertyContainer, vr::Prop_ManufacturerName_String, "Monado");
 	vr::VRProperties()->SetStringProperty(m_ulPropertyContainer, vr::Prop_ModelNumber_String, m_xdev->str);
 	vr::VRProperties()->SetFloatProperty(m_ulPropertyContainer, vr::Prop_UserIpdMeters_Float, m_flIPD);
-	// The MIX device relation already names the eye midpoint. Eye-to-head
-	// below adds only IPD; adding depth here would compensate the origin twice.
+	// DriverFromHead supplies the MIX body-to-eye translation after prediction.
+	// Eye-to-head below adds only IPD; a depth property would apply it twice.
 	vr::VRProperties()->SetFloatProperty(m_ulPropertyContainer, vr::Prop_UserHeadToEyeDepthMeters_Float, 0.f);
 	vr::VRProperties()->SetFloatProperty(m_ulPropertyContainer, vr::Prop_DisplayFrequency_Float, m_flDisplayFrequency);
 	vr::VRProperties()->SetFloatProperty( m_ulPropertyContainer, vr::Prop_SecondsFromVsyncToPhotons_Float, m_flSecondsFromVsyncToPhotons);
@@ -1386,7 +1386,8 @@ CDeviceDriver_Monado::GetPose()
 	timepoint_ns now_ns = os_monotonic_get_ns();
 	struct xrt_space_relation rel;
 	int64_t sample_ns = now_ns;
-	bool raw_qvr = qiyu_profile_for_serial(m_xdev->serial) != nullptr && m_xdev->supported.position_tracking;
+	const struct qiyu_hmd_profile *profile = qiyu_profile_for_serial(m_xdev->serial);
+	bool raw_qvr = profile != nullptr && m_xdev->supported.position_tracking;
 	if (raw_qvr)
 		a081_qvr_latest_pose(m_xdev, &rel, &sample_ns);
 	else
@@ -1407,7 +1408,11 @@ CDeviceDriver_Monado::GetPose()
 	    .vecWorldFromDriverTranslation = {0, 0, 0},
 
 	    .qDriverFromHeadRotation = HmdQuaternion_Init(1, 0, 0, 0),
-	    .vecDriverFromHeadTranslation = {0, 0, 0},
+	    // The runtime predicts body q/p first, then forms p_head=p_body+R(q)*h.
+	    // Keep body velocity here; the runtime differentiates this rigid arm.
+	    .vecDriverFromHeadTranslation = {raw_qvr ? profile->body_to_eye_m[0] : 0,
+	                                     raw_qvr ? profile->body_to_eye_m[1] : 0,
+	                                     raw_qvr ? profile->body_to_eye_m[2] : 0},
 
 	    .vecPosition = {0, 0, 0},
 	    .vecVelocity = {0, 0, 0},

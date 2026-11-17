@@ -15,17 +15,21 @@ struct qiyu_hmd_profile
 	float frustum_half_width_m;
 	float frustum_half_height_m;
 	float lens_even[3];
+	// Fixed tracker-body to binocular-center translation, expressed in body axes.
+	float body_to_eye_m[3];
 };
 
 static const struct qiyu_hmd_profile qiyu_a081_profile = {
 	"a081", "Qiyu MIX A081", "A081-LINUX-IIO", "A081",
 	82.4f, 91.6f, .0609f, .068f, {.218861984f, -.026857263f, .178005457f},
+	{-.057022f, .032557f, .068516f}, // MIX svrapi_config gSensorHeadOffset
 };
 
 static const struct qiyu_hmd_profile qiyu_vr700_profile = {
 	"vr700", "Qiyu DREAM PRO VR700", "VR700-LINUX-IIO", "VR700",
 	77.4746528f, 77.4746528f, .0594416876f, .0594416876f,
 	{.213878493f, -.015922299f, .152495336f},
+	{0.f, 0.f, 0.f}, // No body-to-eye calibration is selected for this profile.
 };
 
 static inline const struct qiyu_hmd_profile *
