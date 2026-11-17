@@ -1,3 +1,12 @@
+monado-xr (25.0.0+xr19) unstable; urgency=medium
+
+  * Consume the sole native OEM body-pose stream, removing AP catch-up and
+    the parallel IIO/3DoF estimator paths.
+  * Preserve OEM field validity independently of confidence and remove
+    unsupported age expiry while retaining real query epochs.
+
+ -- bits <bigbits@hackx.cc>  Wed, 18 Nov 2026 00:37:49 +0800
+
 monado-xr (25.0.0+xr18) unstable; urgency=medium
 
   * Publish MIX tracker-body state with a static DriverFromHead extrinsic,

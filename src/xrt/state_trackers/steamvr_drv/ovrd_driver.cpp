@@ -1146,7 +1146,10 @@ class CDeviceDriver_Monado : public vr::ITrackedDeviceServerDriver, public vr::I
 public:
 	CDeviceDriver_Monado(struct xrt_instance *xinst, struct xrt_device *xdev) : m_xdev(xdev)
 	{
-		//! @todo latency
+		// Inherited, unmeasured display-timing placeholder. This property is
+		// consumed in the runtime's pose target; present_offset schedules work
+		// and cannot cancel it. Replace only with timing in this event domain,
+		// not the Android Choreographer half-exposure scalar.
 		m_flSecondsFromVsyncToPhotons = 0.011f;
 
 		float ns = (float)m_xdev->hmd->screens->nominal_frame_interval_ns;
@@ -1401,8 +1404,8 @@ CDeviceDriver_Monado::GetPose()
 	m_relation_chain_resolve(&chain, &rel);
 
 	vr::DriverPose_t t = {
-	    // QVR anchor plus observed IMU integration, at its actual state epoch.
-	    // The driver never predicts past the last real IMU sample.
+	    // The OEM HRP body state, at its actual sensor epoch. The runtime is
+	    // the sole owner of future prediction; no AP catch-up state is inserted.
 	    .poseTimeOffset = raw_qvr ? double(sample_ns - int64_t(os_monotonic_get_ns())) / 1e9 : 0,
 	    .qWorldFromDriverRotation = HmdQuaternion_Init(1, 0, 0, 0),
 	    .vecWorldFromDriverTranslation = {0, 0, 0},
@@ -1433,18 +1436,19 @@ CDeviceDriver_Monado::GetPose()
 	};
 	apply_pose(&rel, &t);
 	if (raw_qvr) {
-		// Last-known/inertially inferred position is valid for presentation,
-		// but is never advertised as a directly tracked 6DoF position.
+		// Preserve usable OEM fields independently of tracking confidence. The
+		// generic controller helper above requires TRACKED for orientation;
+		// an inferred HMD rotation is still a valid pose representation.
+		t.poseIsValid = (rel.relation_flags & XRT_SPACE_RELATION_ORIENTATION_VALID_BIT) != 0;
+		if (t.poseIsValid) copy_quat(&rel.pose.orientation, &t.qRotation);
 		if (rel.relation_flags & XRT_SPACE_RELATION_POSITION_VALID_BIT)
 			copy_vec3(&rel.pose.position, t.vecPosition);
-		else
-			t.poseIsValid = false;
-		if (!t.poseIsValid)
+		if (!t.poseIsValid || !(rel.relation_flags & XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT))
 			t.result = vr::TrackingResult_Running_OutOfRange;
-		else if (!(rel.relation_flags & XRT_SPACE_RELATION_POSITION_TRACKED_BIT)) {
+		else if (!(rel.relation_flags & XRT_SPACE_RELATION_POSITION_TRACKED_BIT))
 			t.result = vr::TrackingResult_Fallback_RotationOnly;
-			// Position confidence does not change the OEM orientation source.
-		}
+		else
+			t.result = vr::TrackingResult_Running_OK;
 	}
 
 #ifdef DUMP_POSE
