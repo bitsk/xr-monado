@@ -1,3 +1,10 @@
+monado-xr (25.0.0+xr15) unstable; urgency=medium
+
+  * Remove the uncalibrated angular cutoff from tracking recovery.
+    Keep OEM pose validation separate from presentation policy.
+
+ -- bits <bigbits@hackx.cc>  Tue, 17 Nov 2026 16:41:20 +0800
+
 monado-xr (25.0.0+xr14) unstable; urgency=medium
 
   * Remove unverified gyro bias learning and keep recovery velocity consistent

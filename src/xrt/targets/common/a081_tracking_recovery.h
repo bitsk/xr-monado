@@ -159,12 +159,10 @@ a081_head_recovery_update(struct a081_head_recovery *s, struct m_imu_3dof *fusio
 				struct xrt_quat inverse;
 				math_quat_invert(&measured.pose.orientation, &inverse);
 				math_quat_rotate(&s->output.pose.orientation, &inverse, &s->orientation_error);
-				// Large map corrections should not drag the world through the user.
-				// Withdraw validity, then require a fresh stable localization.
-				// Quaternion w is cos(angle/2): this limits map correction to 20 degrees,
-				// not head turn speed. It is unrelated to the prediction horizon.
-				if (a081_head_length(s->position_error) > .25f ||
-				    fabsf(s->orientation_error.w) < .98480775f) {
+				// Angular disagreement alone is not evidence of an invalid OEM pose.
+				// Apply the existing correction without an uncalibrated angle cutoff.
+				// The positional cutoff remains a presentation policy, not OEM validation.
+				if (a081_head_length(s->position_error) > .25f) {
 					a081_head_recovery_reset(s, fusion);
 					return true;
 				}
