@@ -1,3 +1,9 @@
+monado-xr (25.0.0+xr13) unstable; urgency=medium
+
+  * Fix MIX motion judder: add gyro bias learning and relax recovery threshold.
+
+ -- bits <bigbits@hackx.cc>  Tue, 17 Nov 2026 11:23:56 +0800
+
 monado-xr (25.0.0+xr12) unstable; urgency=medium
 
   * Consume the canonical controller pose-and-controls contract.
