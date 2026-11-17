@@ -11,6 +11,7 @@
 #include <xr/head/production-v2/a081_tracking_client.h>
 #include <xr/head/production-v2/a081_qvr_pose.h>
 #include "a081_tracking_recovery.h"
+#include "a081_eye_origin.h"
 #include <xr/head/production-v2/a081_imu_history.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -368,6 +369,8 @@ bool a081_qvr_latest_pose(struct xrt_device *xdev, struct xrt_space_relation *ou
 		*out = d->stock_relation;
 		*sample_ns = d->fused_time_ns;
 		advance_live_imu(d,out,sample_ns,now);
+		if (qiyu_profile_for_serial(xdev->serial) == &qiyu_a081_profile)
+			a081_eye_center_relation(out);
 	}
 	pthread_mutex_unlock(&d->mutex);
 	return true;
@@ -387,14 +390,18 @@ void a081_qvr_pose_timing(struct xrt_device *xdev, char *buffer, unsigned size)
 
 static xrt_result_t get_pose(struct xrt_device *xdev, enum xrt_input_name name, int64_t at, struct xrt_space_relation *out)
 {
-	(void)at; // No prediction until the board's IMU-to-eye transform is verified.
+	(void)at; // This endpoint publishes the measured state; its runtime owns future prediction.
 	struct a081 *d = (struct a081 *)xdev;
 	if (name != XRT_INPUT_GENERIC_HEAD_POSE) return XRT_ERROR_INPUT_UNSUPPORTED;
 	memset(out, 0, sizeof(*out)); out->pose.orientation.w = 1;
 	pthread_mutex_lock(&d->mutex);
 	int64_t age = os_monotonic_get_ns() - d->fused_time_ns;
 	if (d->stock_pose) {
-		if (atomic_load(&d->running) && age >= 0 && age < 100000000) *out = d->stock_relation;
+		if (atomic_load(&d->running) && age >= 0 && age < 100000000) {
+			*out = d->stock_relation;
+			if (qiyu_profile_for_serial(xdev->serial) == &qiyu_a081_profile)
+				a081_eye_center_relation(out);
+		}
 		pthread_mutex_unlock(&d->mutex);
 		return XRT_SUCCESS;
 	}
@@ -505,7 +512,8 @@ struct xrt_device *a081_create(void)
 	a081_setup_optics(xdev);
 	U_LOG_I("%s stock optical map: display FOV, RGB polynomial, panel overscan scale; physical acceptance pending", profile->model);
 	if (d->stock_pose)
-		U_LOG_W("%s experimental QVR pose: SDK android-portrait-v1, raw tracker origin (IMU-reference assumed), metric scale from factory calibration; physical axes/scale/eye offset/accuracy uncalibrated; OEM motion state for runtime prediction", profile->model);
+		U_LOG_W("%s experimental QVR pose: SDK android-portrait-v1, %s; metric scale from factory calibration; physical acceptance pending; OEM motion state for runtime prediction", profile->model,
+		        profile == &qiyu_a081_profile ? "factory body-to-eye-center position and velocity after observed IMU advancement, shared tracking world" : "raw tracking origin");
 	else
 		U_LOG_W("%s bring-up: source=%s; real IMU 3DoF, provisional optics, no positional head tracking", profile->model, d->stock_stream ? "qvr-stream" : "iio");
 	atomic_store(&d->running, true);

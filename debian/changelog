@@ -1,3 +1,11 @@
+monado-xr (25.0.0+xr16) unstable; urgency=medium
+
+  * Publish the MIX factory eye-center origin with matching linear velocity.
+  * Apply the rigid origin change once after sensor-origin recovery and IMU
+    advancement; preserve independent left/right eye separation.
+
+ -- bits <bigbits@hackx.cc>  Tue, 17 Nov 2026 20:12:37 +0800
+
 monado-xr (25.0.0+xr15) unstable; urgency=medium
 
   * Remove the uncalibrated angular cutoff from tracking recovery.
