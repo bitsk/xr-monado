@@ -26,7 +26,7 @@ private:
 
 // Selection and button neutralization are separate: the new valid pose is
 // published during the neutral interval so action consumers can observe UP
-// before the first intentional press. Invalid poses cannot rearm buttons.
+// before the first intentional press. Invalid controls cannot rearm buttons.
 class XRInputSwitch {
 public:
     enum Source:unsigned {None,Controllers,Hands};

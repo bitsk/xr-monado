@@ -1,3 +1,9 @@
+monado-xr (25.0.0+xr12) unstable; urgency=medium
+
+  * Consume the canonical controller pose-and-controls contract.
+
+ -- bits <bigbits@hackx.cc>  Tue, 17 Nov 2026 10:08:58 +0800
+
 monado-xr (25.0.0+xr11) unstable; urgency=medium
 
   * Keep recovery pose and prediction velocities consistent.

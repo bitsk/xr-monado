@@ -190,8 +190,8 @@ public:
             press_edges_[i]=valid&&previous_valid_[i]?buttons&~previous_buttons_[i]:0;
             controller_press|=press_edges_[i]!=0;
             bool stick=valid&&std::hypot(v.joystick_x,v.joystick_y)>.25f;
-            // Integrate movement over a short window. Touch and frame-to-frame
-            // noise cannot indefinitely refresh controller priority.
+            // Accumulate movement from a stable reference so slow deliberate
+            // motion is not lost to frame-to-frame thresholding.
             bool moved=false;
             if(cp[i]&&previous_pose_valid_[i]&&now-motion_since_[i]>=200000000ULL){
                 double d=0;for(unsigned j=0;j<3;++j)d+=std::pow(p.vecPosition[j]-previous_pose_[i].vecPosition[j],2);

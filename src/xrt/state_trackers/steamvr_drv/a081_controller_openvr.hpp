@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSL-1.0
 #pragma once
 #include "qiyu_hmd_profile.h"
-#include <xr/controller/production-v2/a081_controller_pose_wire.h>
+#include <xr/controller/a081_controller_pose_wire.h>
 #include <atomic>
 #include <cerrno>
 #include <cmath>
@@ -273,10 +273,10 @@ public:
 private:
     bool consume(const a081_controller_pose_packet &p, uint64_t now)
     {
-        const bool v2 = p.version == 2;
-        if (p.magic != A081_CONTROLLER_POSE_MAGIC || (p.version != 1 && !v2) ||
+        if (p.magic != A081_CONTROLLER_POSE_MAGIC || p.version != A081_CONTROLLER_POSE_VERSION ||
             p.bytes != sizeof(p) || p.hand > 1 || !p.session_id || !p.sequence ||
-            (p.flags & ~(v2 ? A081_CONTROLLER_POSE_KNOWN_FLAGS : 63u)) || (!v2 && (p.controls || p.joystick)) ||
+            (p.flags & ~A081_CONTROLLER_POSE_KNOWN_FLAGS) ||
+            (p.controls & 0xe0f0000fu) || (p.joystick & 0xffff0000u) ||
             p.coordinate_profile > A081_CONTROLLER_PROFILE_OPENVR_HEAD_RAW ||
             !p.send_monotonic_ns || p.send_monotonic_ns > now ||
             now - p.send_monotonic_ns >= A081_CONTROLLER_POSE_MAX_AGE_NS || !std::isfinite(p.confidence)) return false;
