@@ -14,17 +14,19 @@ public:
     void update(const vr::TrackedDevicePose_t &pose, bool finite, int64_t now)
     {
         if (!compositor) return;
-        bool usable = finite && pose.bDeviceIsConnected && pose.bPoseIsValid &&
-                      (pose.eTrackingResult == vr::TrackingResult_Running_OK ||
-                       pose.eTrackingResult == vr::TrackingResult_Fallback_RotationOnly);
-        int state = !usable ? 0 : pose.eTrackingResult == vr::TrackingResult_Fallback_RotationOnly ? 1 : 2;
+        bool usable = finite && pose.bDeviceIsConnected && pose.bPoseIsValid;
+        int state = !usable ? 0 : pose.eTrackingResult == vr::TrackingResult_Running_OK ? 2 :
+                    pose.eTrackingResult == vr::TrackingResult_Fallback_RotationOnly ? 1 : 3;
         if (state == previous) return;
         // Loss is immediate black; an available measured orientation can
         // reveal the scene without claiming positional tracking has recovered.
-        compositor->FadeToColor(usable ? .05f : 0.f, 0, 0, 0, usable ? 0.f : 1.f);
-        std::printf("A081_DISPLAY_GUARD monotonic_ns=%lld state=%s pose_valid=%d tracking=%d\n",
-                    static_cast<long long>(now), state == 0 ? "protected_black" : state == 1 ? "rotation_only" : "tracked",
-                    pose.bPoseIsValid, pose.eTrackingResult);
+        // Confidence changes do not alter availability and must not restart
+        // a reveal fade. There is no local recovery timer or tracking gate.
+        if (previous < 0 || usable != (previous != 0))
+            compositor->FadeToColor(0, 0, 0, 0, usable ? 0.f : 1.f);
+        std::printf("A081_DISPLAY_GUARD monotonic_ns=%lld state=%s connected=%d pose_valid=%d finite=%d tracking=%d\n",
+                    static_cast<long long>(now), state == 0 ? "protected_black" : state == 1 ? "rotation_only" : state == 2 ? "tracked" : "inferred",
+                    pose.bDeviceIsConnected, pose.bPoseIsValid, finite, pose.eTrackingResult);
         previous = state;
     }
     void close()

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Apply the locked root marker and optional private-session display guard to an external observer."""
+"""Apply the locked root marker and current private-session display guard to an external observer."""
 import argparse
 import hashlib
 import json
@@ -18,7 +18,6 @@ def main():
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--compiler-manifest', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--tracking-display-guard', action='store_true')
     args = parser.parse_args()
     recipe = Path(__file__).resolve().parent
     lock = json.loads((recipe / 'pose-watch-openkylin.source.json').read_text())
@@ -52,17 +51,11 @@ def main():
                     '--input', str(patch)], cwd=inputs, check=True)
     if digest(source) != lock['patch']['patched_source_sha256']:
         raise RuntimeError('Patched source differs from the exact marker-only change')
-    guard = lock.get('optional_display_guard') if args.tracking_display_guard else None
-    if guard:
-        guard_patch = recipe / guard['patch']
-        header = recipe / guard['header']
-        if digest(guard_patch) != guard['patch_sha256'] or digest(header) != guard['header_sha256']:
-            raise RuntimeError('Display guard inputs differ from the fixed record')
-        shutil.copy2(header, inputs / guard['header'])
-        subprocess.run(['patch', '--batch', '--fuzz=0', '--no-backup-if-mismatch', '-p1',
-                        '--input', str(guard_patch)], cwd=inputs, check=True)
-        if digest(source) != guard['patched_source_sha256']:
-            raise RuntimeError('Display guard patched source differs from the fixed record')
+    guard = lock['display_guard']
+    header = recipe / guard['header']
+    if digest(header) != guard['header_sha256']:
+        raise RuntimeError('Display guard header differs from its lock')
+    shutil.copy2(header, inputs / guard['header'])
     sdk = inputs / 'openvr'
     sdk.mkdir()
     shutil.copy2(headers[0], sdk / 'openvr.h')
@@ -78,7 +71,6 @@ def main():
                'patch_sha256': digest(patch), 'compiler_template_sha256': digest(manifest),
                'openvr_header_sha256': digest(headers[0]), 'openvr_license_sha256': digest(license_file),
                'binary_sha256': digest(binary), 'compiler_argv': command,
-               'reference_binary_matches': digest(binary) == lock['reference_binary']['sha256'],
                'device_executed': False, 'installed': False}
     (output / 'build-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     print(json.dumps({key: value for key, value in receipt.items() if key != 'compiler_argv'}, indent=2))

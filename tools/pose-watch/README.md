@@ -7,7 +7,7 @@ The canonical Debian build includes the read-only observer in
 Set `XR_POSE_WATCH_SOURCE` in the component build environment to an external
 cache file matching `original_source.sha256` in the source lock. Register the
 same file and hash in the component builder environment's `inputs` list. The
-build verifies the external source, both patches, the prepared source, and the
+build verifies the external source, the current patch and display guard, the prepared source, and the
 canonical OpenVR header/license. It does not consume an old deployment binary.
 The external full source retains its existing redistribution boundary.
 
@@ -16,3 +16,8 @@ root marker, and native QVR model/serial properties. An absent device selection
 retains MIX identity. UID1000, the private OpenVR registry, real finite pose
 checks, and post-stop invalidation criteria remain required. This helper does
 not generate poses or accept simulated tracking.
+
+The same packaged observer supplies the explicitly enabled session display guard.
+A finite connected valid pose remains visible across tracking-confidence changes;
+only a change in pose availability changes visibility, immediately. The observer
+does not extrapolate poses or add a recovery timeout.

@@ -27,7 +27,7 @@ for name, key in (('openvr.h', 'header_sha256'), ('LICENSE', 'license_sha256')):
 args.output.mkdir(parents=True, exist_ok=True)
 source = args.output / 'pose-watch.cpp'
 shutil.copyfile(args.source, source)
-for entry in (lock['patch'], lock['package_observer']):
+for entry in (lock['patch'],):
     patch = recipe / entry.get('path', entry.get('patch', ''))
     if sha(patch) != entry.get('sha256', entry.get('patch_sha256')):
         parser.error('Observer patch differs from its lock')
@@ -35,6 +35,11 @@ for entry in (lock['patch'], lock['package_observer']):
                     '-p1', '--input', str(patch)], cwd=args.output, check=True)
     if sha(source) != entry['patched_source_sha256']:
         parser.error('Prepared observer source differs from its lock')
+guard = lock['display_guard']
+header = recipe / guard['header']
+if sha(header) != guard['header_sha256']:
+    parser.error('Display guard header differs from its lock')
+shutil.copyfile(header, args.output / guard['header'])
 (args.output / 'inputs.json').write_text(json.dumps({
     'source_sha256': sha(args.source), 'prepared_sha256': sha(source),
     'openvr_header_sha256': sha(sdk / 'openvr.h'),

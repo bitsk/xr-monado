@@ -1,3 +1,11 @@
+monado-xr (25.0.0+xr20) unstable; urgency=medium
+
+  * Use one packaged observer with current runtime identity.
+  * Preserve finite valid orientation across confidence changes without restarting
+    timed reveal fades or loading a separate asset-prefix observer.
+
+ -- bits <bigbits@hackx.cc>  Wed, 18 Nov 2026 23:05:07 +0800
+
 monado-xr (25.0.0+xr19) unstable; urgency=medium
 
   * Consume the sole native OEM body-pose stream, removing AP catch-up and
