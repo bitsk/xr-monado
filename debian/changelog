@@ -1,3 +1,10 @@
+monado-xr (25.0.0+xr21) unstable; urgency=medium
+
+  * Rebuild the runtime with isolated current XR contracts and compiler
+    dependency verification, removing accidental historical header consumption.
+
+ -- bits <bigbits@hackx.cc>  Wed, 18 Nov 2026 23:33:35 +0800
+
 monado-xr (25.0.0+xr20) unstable; urgency=medium
 
   * Use one packaged observer with current runtime identity.
