@@ -1,0 +1,48 @@
+--- a/main/main.cpp
++++ b/main/main.cpp
+@@ -2872,6 +2872,7 @@
+ 	// XR project settings.
+ 	GLOBAL_DEF_RST_BASIC("xr/openxr/enabled", false);
+ 	GLOBAL_DEF_RST_BASIC("xr/openxr/headset_only", false);
++	GLOBAL_DEF_RST_BASIC("xr/openxr/invert_render_target_y", false);
+ 	GLOBAL_DEF(PropertyInfo(Variant::STRING, "xr/openxr/target_api_version"), "");
+ 	GLOBAL_DEF_BASIC(PropertyInfo(Variant::STRING, "xr/openxr/default_action_map", PROPERTY_HINT_FILE, "*.tres"), "res://openxr_action_map.tres");
+ 	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "xr/openxr/form_factor", PROPERTY_HINT_ENUM, "Head Mounted,Handheld"), "0");
+--- a/servers/rendering/renderer_rd/renderer_scene_render_rd.cpp
++++ b/servers/rendering/renderer_rd/renderer_scene_render_rd.cpp
+@@ -1377,6 +1377,13 @@
+ 		scene_data.taa_frame_count = p_camera_data->taa_frame_count;
+ 		scene_data.main_cam_transform = p_camera_data->main_transform;
+ 		scene_data.flip_y = !p_reflection_probe.is_valid();
++		// App opt-in for a runtime that imports the XR image with inverted Y.
++		// Offscreen UI viewports, probes and desktop output keep their convention.
++		if (scene_data.flip_y && p_camera_data->view_count == 2 &&
++				texture_storage->render_target_get_override_color(rb->get_render_target()).is_valid() &&
++				bool(GLOBAL_GET("xr/openxr/invert_render_target_y"))) {
++			scene_data.flip_y = false;
++		}
+ 
+ 		scene_data.view_count = p_camera_data->view_count;
+ 		for (uint32_t v = 0; v < p_camera_data->view_count; v++) {
+--- a/servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.cpp
++++ b/servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.cpp
+@@ -874,7 +874,7 @@
+ 
+ 	Size2i screen_size;
+ 	RID framebuffer;
+-	bool reverse_cull = p_render_data->scene_data->cam_transform.basis.determinant() < 0;
++	bool reverse_cull = (p_render_data->scene_data->cam_transform.basis.determinant() < 0) != !p_render_data->scene_data->flip_y;
+ 	bool merge_transparent_pass = true; // If true: we can do our transparent pass in the same pass as our opaque pass.
+ 	bool using_subpass_post_process = true; // If true: we can do our post processing in a subpass
+ 	RendererRD::MaterialStorage::Samplers samplers;
+--- a/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp
++++ b/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp
+@@ -1835,7 +1835,7 @@
+ 	bool using_ssr = false;
+ 	bool using_sdfgi = false;
+ 	bool using_voxelgi = false;
+-	bool reverse_cull = p_render_data->scene_data->cam_transform.basis.determinant() < 0;
++	bool reverse_cull = (p_render_data->scene_data->cam_transform.basis.determinant() < 0) != !p_render_data->scene_data->flip_y;
+ 	bool using_ssil = !is_reflection_probe && p_render_data->environment.is_valid() && environment_get_ssil_enabled(p_render_data->environment);
+ 	bool using_motion_pass = rb_data.is_valid() && using_upscaling;
+ 

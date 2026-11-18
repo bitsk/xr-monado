@@ -1,2 +1,3 @@
 godot-cleanup.patch
 godot-headset-only.patch
+godot-xr-image-y.patch

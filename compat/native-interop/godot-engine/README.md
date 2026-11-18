@@ -39,3 +39,10 @@ build manifest. A release template without path overrides must sit beside
 for the intended application with the native-interop profile and compatible
 X11 Vulkan ICD. This build does not replace SteamVR's renderer or enable
 DRS/FFR. Validate image output, motion and teardown separately on the device.
+
+The image-Y patch adds `xr/openxr/invert_render_target_y` (default false).
+It reverses the final stereo external render-target projection and matching
+face winding only for applications that opt in. Offscreen UI canvases,
+reflection probes and normal desktop output retain their existing orientation.
+SaberV enables it for the vertically inverted SteamVR import observed on MIX;
+image direction, binocular geometry and physical controls require device checks.
