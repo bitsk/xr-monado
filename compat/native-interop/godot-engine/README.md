@@ -39,10 +39,3 @@ build manifest. A release template without path overrides must sit beside
 for the intended application with the native-interop profile and compatible
 X11 Vulkan ICD. This build does not replace SteamVR's renderer or enable
 DRS/FFR. Validate image output, motion and teardown separately on the device.
-
-The image rotation patch adds the opt-in `xr/openxr/rotate_render_target_180`
-setting. It corrects both axes on each stereo external render target, without
-swapping eyes or transforming headset and controller poses. Offscreen UI
-canvases, reflection probes and desktop output keep their existing orientation.
-SaberV enables this for the image orientation observed in the MIX SteamVR
-runtime. Physical stereo and input are validated on the headset.
