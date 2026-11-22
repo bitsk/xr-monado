@@ -40,9 +40,9 @@ for the intended application with the native-interop profile and compatible
 X11 Vulkan ICD. This build does not replace SteamVR's renderer or enable
 DRS/FFR. Validate image output, motion and teardown separately on the device.
 
-The image-Y patch adds `xr/openxr/invert_render_target_y` (default false).
-It reverses the final stereo external render-target projection and matching
-face winding only for applications that opt in. Offscreen UI canvases,
-reflection probes and normal desktop output retain their existing orientation.
-SaberV enables it for the vertically inverted SteamVR import observed on MIX;
-image direction, binocular geometry and physical controls require device checks.
+The image rotation patch adds the opt-in `xr/openxr/rotate_render_target_180`
+setting. It corrects both axes on each stereo external render target, without
+swapping eyes or transforming headset and controller poses. Offscreen UI
+canvases, reflection probes and desktop output keep their existing orientation.
+SaberV enables this for the image orientation observed in the MIX SteamVR
+runtime. Physical stereo and input are validated on the headset.

@@ -14,8 +14,8 @@
       "sha256": "038f186ea28d267bc05f5dd0ac4693f2d3398a2c99ea412fcb1fe4f5bfe700bf"
     },
     {
-      "file": "patches/godot-xr-image-y.patch",
-      "sha256": "6332306ad9c0fe3e5bd50d80030b76668648710819a7e4993a6c3fe8413a66c3"
+      "file": "patches/godot-xr-image-rotation.patch",
+      "sha256": "644f0d1af2a65b658e5277206b33021310caeeecaf5dcdc05799791e6eebc574"
     }
   ],
   "target": "linuxbsd-arm64-template_release",
