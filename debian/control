@@ -2,7 +2,7 @@ Source: monado-xr
 Section: misc
 Priority: optional
 Maintainer: openKylin XR SIG <xr@lists.openkylin.top>
-Build-Depends: debhelper-compat (= 13), python3, patch, cmake, ninja-build, cargo, rustc, g++, pkg-config, libvulkan-dev, libeigen3-dev, glslang-tools, libudev-dev, libxr-head-dev (>= 0.1.9), libxr-controller-dev (>= 0.1.6), libxr-hand-dev (>= 0.1.1)
+Build-Depends: debhelper-compat (= 13), python3, patch, cmake, ninja-build, cargo, rustc, g++, pkg-config, libvulkan-dev, libeigen3-dev, glslang-tools, libudev-dev, libxr-head-dev (>= 0.1.9), libxr-controller-dev (>= 0.1.6), libxr-hand-dev (>= 0.1.1), libxr-device-dev (>= 0.1.13)
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 Vcs-Git: https://github.com/bitsk/xr-monado.git

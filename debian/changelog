@@ -1,3 +1,9 @@
+monado-xr (25.0.0+xr22) unstable; urgency=medium
+
+  * Route OpenXR and OpenVR haptics to the A081 session radio.
+
+ -- bits <bigbits@hackx.cc>  Mon, 23 Nov 2026 14:25:00 +0800
+
 monado-xr (25.0.0+xr21) unstable; urgency=medium
 
   * Rebuild the runtime with isolated current XR contracts and compiler

@@ -1738,6 +1738,10 @@ CServerDriver_Monado::Cleanup()
 void
 CServerDriver_Monado::HandleHapticEvent(vr::VREvent_t *event)
 {
+	if (m_a081_pose_controllers.haptic(event->data.hapticVibration)) {
+		return;
+	}
+
 	float freq = event->data.hapticVibration.fFrequency;
 	float amp = event->data.hapticVibration.fAmplitude;
 	float duration = event->data.hapticVibration.fDurationSeconds;

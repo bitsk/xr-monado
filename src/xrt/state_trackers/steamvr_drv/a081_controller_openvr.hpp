@@ -2,6 +2,8 @@
 #pragma once
 #include "qiyu_hmd_profile.h"
 #include <xr/controller/a081_controller_pose_wire.h>
+#include <xr/device/a081_controller_haptics.h>
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <cmath>
@@ -86,6 +88,13 @@ private:
             return vr::VRInitError_None;
         }
         void Deactivate() override { index.store(vr::k_unTrackedDeviceIndexInvalid); }
+        bool owns_haptic(const vr::VREvent_HapticVibration_t &event) const
+        {
+            const auto id = index.load();
+            return id != vr::k_unTrackedDeviceIndexInvalid && h.haptic &&
+                event.containerHandle == vr::VRProperties()->TrackedDeviceToPropertyContainer(id) &&
+                (!event.componentHandle || event.componentHandle == h.haptic);
+        }
         void EnterStandby() override {}
         void *GetComponent(const char *) override { return nullptr; }
         void DebugRequest(const char *, char *response, uint32_t size) override
@@ -144,7 +153,7 @@ private:
     };
 public:
     A081ControllerPosePair() : left(*this, 0), right(*this, 1) {}
-    ~A081ControllerPosePair() { close_source(); }
+    ~A081ControllerPosePair() { cleanup(); }
     bool configure(bool native_head, bool register_devices = true)
     {
         const char *requested = std::getenv("A081_CONTROLLER_POSE_SOCKET");
@@ -159,6 +168,13 @@ public:
         }
         vr700 = !std::strcmp(board->device, "vr700");
         std::strcpy(path, requested);
+        if (!vr700) {
+            const std::string endpoint = std::string(requested).substr(0, std::string(requested).rfind('/') + 1) + "haptic.sock";
+            if (endpoint.size() < sizeof(haptic_address.sun_path)) {
+                haptic_address.sun_family = AF_UNIX;
+                std::strcpy(haptic_address.sun_path, endpoint.c_str());
+            }
+        }
         enabled = true;
         if (!register_devices) return true;
         bool added_left = vr::VRServerDriverHost()->TrackedDeviceAdded(left.serial(), vr::TrackedDeviceClass_Controller, &left);
@@ -167,7 +183,8 @@ public:
             ovrd_log("A081 controller registration failed left=%d right=%d\n", added_left, added_right);
             cleanup(); return false;
         }
-        ovrd_log("A081 controllers registered as oculus_touch: Nordic controls, SDK pose; haptics not implemented\n");
+        ovrd_log("A081 controllers registered as oculus_touch: Nordic controls, SDK pose; haptics=%s\n",
+                 haptic_address.sun_path[0] ? "session radio" : "unavailable");
         return true;
     }
     void frame(bool publish_devices = true)
@@ -190,12 +207,50 @@ public:
         }
         if (publish_devices) { left.publish(); right.publish(); }
     }
+    bool haptic(const vr::VREvent_HapticVibration_t &event)
+    {
+        const int hand = left.owns_haptic(event) ? 0 : right.owns_haptic(event) ? 1 : -1;
+        if (hand < 0) return false;
+        if (!enabled || !haptic_address.sun_path[0] || !std::isfinite(event.fAmplitude) ||
+            !std::isfinite(event.fDurationSeconds))
+            return true;
+        const auto now = uint64_t(os_monotonic_get_ns());
+        unsigned strength = 0;
+        if (event.fAmplitude > 0) {
+            if (!controls_valid(unsigned(hand))) return true;
+            strength = std::max(1L, std::lround(std::min(event.fAmplitude, 1.f) * A081_HAPTIC_MAX_STRENGTH));
+        }
+        const unsigned duration = strength ? unsigned(std::lround(std::clamp(
+            event.fDurationSeconds * 1000.f, float(A081_HAPTIC_MIN_MS), float(A081_HAPTIC_MAX_MS)))) : 0;
+        // Ignore redundant idle requests; SaberV occasionally submits zero amplitude.
+        if (!strength && now >= haptic_until[hand]) return true;
+        if (haptic_fd < 0) {
+            struct stat info{};
+            if (lstat(haptic_address.sun_path, &info) || !S_ISSOCK(info.st_mode) || info.st_uid != 0 ||
+                (info.st_mode & 0007)) return true;
+            haptic_fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+            if (haptic_fd < 0) return true;
+        }
+        const a081_haptic_request request{now, A081_HAPTIC_MAGIC, uint16_t(duration),
+                                          uint8_t(hand), uint8_t(strength)};
+        if (sendto(haptic_fd, &request, sizeof(request), MSG_DONTWAIT | MSG_NOSIGNAL,
+                   reinterpret_cast<const sockaddr *>(&haptic_address), sizeof(haptic_address)) == sizeof(request)) {
+            haptic_until[hand] = strength ? now + uint64_t(duration) * 1000000 : 0;
+            ovrd_log("A081_HAPTIC_REQUEST hand=%s strength=%u duration_ms=%u\n",
+                     hand ? "right" : "left", strength, duration);
+        }
+        return true;
+    }
     void cleanup()
     {
         enabled = false;
         close_source();
         left.Deactivate(); right.Deactivate();
         path[0] = '\0'; retry_ns = 0;
+        if (haptic_fd >= 0) close(haptic_fd);
+        haptic_fd = -1;
+        haptic_address = {};
+        haptic_until[0] = haptic_until[1] = 0;
     }
 private:
     void close_source()
@@ -330,7 +385,9 @@ private:
     std::mutex mutex;
     Sample samples[2]{};
     uint64_t session = 0, retry_ns = 0;
-    int fd = -1;
+    int fd = -1, haptic_fd = -1;
+    sockaddr_un haptic_address{};
+    uint64_t haptic_until[2]{};
     bool enabled = false;
     char path[sizeof(sockaddr_un::sun_path)]{};
 };
