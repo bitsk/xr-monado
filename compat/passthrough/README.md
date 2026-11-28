@@ -56,6 +56,8 @@ Other API layers, application swapchains and submitted layer chains are preserve
 
 ## Timing, failure and evidence
 
+A visible snapshot reader holds a shared flock on the snapshot directory for the duration of streaming. The camera owner also accepts demand from the existing preview socket. Closing the last reader lets the two IMX streams sleep.
+
 Only the existing hardware owner's root-owned QSP1 snapshots are read; no V4L2
 open, sensor reconfiguration, browser or debug-service dependency is introduced.
 Both eye frames must be younger than 150 ms. Missing/stale pairs render a black

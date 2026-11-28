@@ -1,3 +1,9 @@
+monado-xr (25.0.0+xr23) unstable; urgency=medium
+
+  * Hold a shared capture request only while XR passthrough is visible.
+
+ -- bits <bigbits@hackx.cc>  Sun, 29 Nov 2026 00:28:37 +0800
+
 monado-xr (25.0.0+xr22) unstable; urgency=medium
 
   * Route OpenXR and OpenVR haptics to the A081 session radio.

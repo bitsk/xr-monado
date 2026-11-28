@@ -258,6 +258,18 @@ struct WorkerStats {
     reads: [AtomicU64; 2],
     cpu_ns: [AtomicU64; 2],
 }
+// Multiple visible layers may request the owner's two IMX streams. Closing
+// the directory descriptor releases this reader's request even after a crash.
+fn request_stereo(directory: &Path) -> Option<File> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(directory)
+        .ok()?;
+    (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0)
+        .then_some(file)
+}
+
 fn snapshot(
     directory: &Path,
     slot: u32,
@@ -570,10 +582,24 @@ impl Passthrough {
             let mut frames: [Option<Arc<Frame>>; 2] = [None, None];
             let mut gains = config.colour_gain;
             let mut next_balance = 0;
+            let mut request = None;
             while !stop.load(Ordering::Relaxed) {
                 if !visible.load(Ordering::Relaxed) {
+                    if request.take().is_some() {
+                        frames = [None, None];
+                        if let Ok(mut target) = latest.lock() {
+                            *target = None;
+                        }
+                    }
                     thread::sleep(std::time::Duration::from_millis(30));
                     continue;
+                }
+                if request.is_none() {
+                    request = request_stereo(&config.directory);
+                    if request.is_none() {
+                        thread::sleep(std::time::Duration::from_millis(30));
+                        continue;
+                    }
                 }
                 let mut changed = false;
                 for eye in 0..2 {
