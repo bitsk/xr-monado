@@ -1,6 +1,7 @@
 monado-xr (25.0.0+xr24) unstable; urgency=medium
 
   * Sample stereo white balance only when adapting camera colours.
+  * Wake the idle camera reader on visibility changes and shutdown.
 
  -- bits <bigbits@hackx.cc>  Sun, 29 Nov 2026 00:37:09 +0800
 

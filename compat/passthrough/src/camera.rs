@@ -584,15 +584,15 @@ impl Passthrough {
             let mut gains = config.colour_gain;
             let mut next_balance = 0;
             let mut request = None;
-            while !stop.load(Ordering::Relaxed) {
-                if !visible.load(Ordering::Relaxed) {
+            while !stop.load(Ordering::Acquire) {
+                if !visible.load(Ordering::Acquire) {
                     if request.take().is_some() {
                         frames = [None, None];
                         if let Ok(mut target) = latest.lock() {
                             *target = None;
                         }
                     }
-                    thread::sleep(std::time::Duration::from_millis(30));
+                    thread::park();
                     continue;
                 }
                 if request.is_none() {
@@ -786,7 +786,14 @@ impl Passthrough {
             "exposure_sync_verified":false,"physical_extrinsics_verified":false,"colour_calibrated":false})
     }
     pub fn set_visible(&self, visible: bool) {
-        self.visible.store(visible, Ordering::Relaxed);
+        if self.visible.load(Ordering::Relaxed) != visible {
+            self.visible.store(visible, Ordering::Release);
+            if visible {
+                if let Some(worker) = &self.worker {
+                    worker.thread().unpark();
+                }
+            }
+        }
     }
     pub fn active(&self) -> bool {
         self.visible.load(Ordering::Relaxed)
@@ -986,8 +993,9 @@ impl Passthrough {
 
 impl Drop for Passthrough {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        self.stop.store(true, Ordering::Release);
         if let Some(worker) = self.worker.take() {
+            worker.thread().unpark();
             let _ = worker.join();
         }
         unsafe {
