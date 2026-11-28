@@ -56,6 +56,7 @@
  */
 
 DEBUG_GET_ONCE_LOG_OPTION(remote_log, "REMOTE_LOG", U_LOGGING_INFO)
+DEBUG_GET_ONCE_OPTION(remote_bind_address, "XRT_REMOTE_BIND_ADDRESS", NULL)
 
 #define R_TRACE(R, ...) U_LOG_IFL_T((R)->rc.log_level, __VA_ARGS__)
 #define R_DEBUG(R, ...) U_LOG_IFL_D((R)->rc.log_level, __VA_ARGS__)
@@ -181,7 +182,7 @@ setup_accept_fd(struct r_hub *r)
 	}
 
 	server_address.sin_family = AF_INET;
-	server_address.sin_addr.s_addr = htonl(INADDR_ANY);
+	server_address.sin_addr.s_addr = r->bind_address;
 	server_address.sin_port = htons(r->port);
 
 	ret = bind(r->accept_fd, (struct sockaddr *)&server_address, sizeof(server_address));
@@ -408,6 +409,13 @@ r_hub_system_devices_destroy(struct xrt_system_devices *xsysd)
 xrt_result_t
 r_create_devices(uint16_t port, uint32_t view_count, struct xrt_system_devices **out_xsysd)
 {
+	struct in_addr bind_address = {.s_addr = htonl(INADDR_ANY)};
+	const char *bind_option = debug_get_option_remote_bind_address();
+	if (bind_option != NULL && inet_pton(AF_INET, bind_option, &bind_address) != 1) {
+		U_LOG_E("Invalid XRT_REMOTE_BIND_ADDRESS '%s': expected a numeric IPv4 address", bind_option);
+		return XRT_ERROR_INVALID_ARGUMENT;
+	}
+
 	struct r_hub *r = U_TYPED_CALLOC(struct r_hub);
 	int ret;
 
@@ -436,6 +444,7 @@ r_create_devices(uint16_t port, uint32_t view_count, struct xrt_system_devices *
 	r->gui.hmd = true;
 	r->gui.left = true;
 	r->gui.right = true;
+	r->bind_address = bind_address.s_addr;
 	r->port = port;
 	r->view_count = view_count;
 	r->accept_fd = -1;

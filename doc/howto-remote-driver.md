@@ -39,3 +39,22 @@ hello_xr -G Vulkan2
 ```
 
 Now you can manipulate the values and control the devices.
+
+## Listener address
+
+The remote driver accepts an optional `XRT_REMOTE_BIND_ADDRESS` numeric IPv4
+address. For a simulator GUI running on the same machine, set it explicitly:
+
+```bash
+XRT_REMOTE_BIND_ADDRESS=127.0.0.1 P_OVERRIDE_ACTIVE_CONFIG=remote monado-service
+```
+
+If the variable is absent, the listener retains its existing all-interface
+`0.0.0.0` behavior for compatibility. An empty value, hostname, IPv6 address or
+malformed IPv4 address fails device creation with an explicit configuration
+error before opening the listener or starting its thread. The option changes
+only the listening address; it does not change the port or remote wire format.
+
+A profile selecting loopback should verify the actual socket with `ss -ltnp`
+in its target session. Source and build checks alone do not establish listener
+or graphics support on a new machine.
