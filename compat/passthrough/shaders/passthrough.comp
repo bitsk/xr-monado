@@ -5,14 +5,24 @@ layout(set=0,binding=0,std430) readonly buffer RawPixels { uint data[]; } raw;
 layout(set=0,binding=1,rgba8) uniform writeonly image2D result;
 layout(push_constant) uniform Decode { uint width;uint height;uint plane_bytes;uint stride0;uint stride1;uint black;uint update_mask; } p;
 uint byte_at(uint offset){return (raw.data[offset>>2]>>((offset&3u)*8u))&255u;}
-uint sample10(uint base,uint stride,uint x,uint y){uint at=base+y*stride+(x/4u)*5u;return byte_at(at+x%4u)*4u+((byte_at(at+4u)>>(2u*(x%4u)))&3u);}
+// Each RGGB output texel reads two adjacent pixels from each RAW10 row.
+uvec2 sample_pair(uint group, uint pair_index) {
+    uint high = group + pair_index * 2u;
+    uint low = byte_at(group + 4u) >> (pair_index * 4u);
+    return uvec2(byte_at(high) * 4u + (low & 3u),
+                 byte_at(high + 1u) * 4u + ((low >> 2u) & 3u));
+}
 void main(){
     uvec2 q=gl_GlobalInvocationID.xy;
     if(q.x>=p.width*2u||q.y>=p.height)return;
-    uint eye=q.x/p.width;
+    uint eye = uint(q.x >= p.width);
     if((p.update_mask&(1u<<eye))==0u)return;
-    uint x=(q.x%p.width)*2u,y=q.y*2u,base=eye*p.plane_bytes,stride=eye==0u?p.stride0:p.stride1;
-    uvec3 values=uvec3(sample10(base,stride,x,y),(sample10(base,stride,x+1u,y)+sample10(base,stride,x,y+1u))/2u,sample10(base,stride,x+1u,y+1u));
+    uint x = q.x - eye * p.width;
+    uint stride = eye == 0u ? p.stride0 : p.stride1;
+    uint group = eye * p.plane_bytes + q.y * 2u * stride + (x >> 1u) * 5u;
+    uvec2 top = sample_pair(group, x & 1u);
+    uvec2 bottom = sample_pair(group + stride, x & 1u);
+    uvec3 values = uvec3(top.x, (top.y + bottom.x) / 2u, bottom.y);
     vec3 rgb=max(vec3(values)-vec3(p.black),vec3(0.))/float(1023u-p.black);
     imageStore(result,ivec2(q),vec4(rgb,1.));
 }

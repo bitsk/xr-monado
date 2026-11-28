@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #version 450
-layout(location=0) in vec2 uv;
+layout(location=0) in vec2 view_xy;
+layout(location=1) in vec3 camera_ray;
 layout(location=0) out vec4 colour;
 layout(set=0,binding=3) uniform sampler2D passthrough;
 layout(set=0,binding=4,std430) readonly buffer CameraCalibration { vec4 camera[]; } calibration;
@@ -9,8 +10,7 @@ const float PI=3.141592653589793;
 void main(){
 
     int eye=int(view.environment.w+.5),base=eye*5;
-    vec3 ray=normalize(vec3(mix(view.fov.x,view.fov.y,uv.x),mix(view.fov.z,view.fov.w,uv.y),-1.));
-    vec3 c=vec3(dot(calibration.camera[base+2].xyz,ray),dot(calibration.camera[base+3].xyz,ray),dot(calibration.camera[base+4].xyz,ray));
+    vec3 c=camera_ray*inversesqrt(1.+dot(view_xy,view_xy));
     if(c.z<=.0001){colour=vec4(0.,0.,0.,1.);return;}
     float r=length(c.xy),lookup=clamp(r/(r+c.z)*1024.,0.,1024.);
     int lower=min(int(lookup),1023),lut_base=12+eye*1025;

@@ -79,7 +79,7 @@ impl Renderer {
                         .binding(4)
                         .descriptor_count(1)
                         .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                        .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+                        .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT),
                 ]),
                 None,
             )?;
@@ -109,7 +109,7 @@ impl Renderer {
                 &vk::PipelineLayoutCreateInfo::default()
                     .set_layouts(&[r.set_layout])
                     .push_constant_ranges(&[vk::PushConstantRange {
-                        stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                        stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                         offset: 0,
                         size: 64,
                     }]),
@@ -366,7 +366,7 @@ impl Renderer {
                     d.cmd_push_constants(
                         self.cmd,
                         self.layout,
-                        vk::ShaderStageFlags::FRAGMENT,
+                        vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                         0,
                         std::slice::from_raw_parts(constants.as_ptr().cast(), 64),
                     );
