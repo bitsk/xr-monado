@@ -1,3 +1,9 @@
+monado-xr (25.0.0+xr24) unstable; urgency=medium
+
+  * Sample stereo white balance only when adapting camera colours.
+
+ -- bits <bigbits@hackx.cc>  Sun, 29 Nov 2026 00:37:09 +0800
+
 monado-xr (25.0.0+xr23) unstable; urgency=medium
 
   * Hold a shared capture request only while XR passthrough is visible.

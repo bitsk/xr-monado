@@ -3,7 +3,7 @@
 //! opens V4L2, changes a sensor, or depends on the debug server or browser.
 use crate::gpu::{Buffer, Gpu};
 use crate::renderer::{colour_range, image_barrier};
-use anyhow::{Context, Result, ensure};
+use anyhow::{ensure, Context, Result};
 use ash::vk;
 use serde::Deserialize;
 use std::{
@@ -15,8 +15,8 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex,
     },
     thread,
     time::Duration,
@@ -246,8 +246,6 @@ struct Frame {
     received: u64,
     stride: usize,
     raw: Vec<u8>,
-    sums: [f64; 3],
-    count: u32,
 }
 struct Stereo {
     frames: [Arc<Frame>; 2],
@@ -266,8 +264,7 @@ fn request_stereo(directory: &Path) -> Option<File> {
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(directory)
         .ok()?;
-    (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0)
-        .then_some(file)
+    (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0).then_some(file)
 }
 
 fn snapshot(
@@ -276,7 +273,6 @@ fn snapshot(
     previous: Option<&Frame>,
     width: usize,
     height: usize,
-    black: u16,
 ) -> Option<Frame> {
     let started = now_ns();
     let max_stride = (width * 2 * 5 / 4).div_ceil(256) * 256;
@@ -332,13 +328,27 @@ fn snapshot(
     let (mut f, generation, sequence, received, stride, bytes) = selected?;
     let mut raw = vec![0u8; bytes];
     f.read_exact(&mut raw).ok()?;
-    drop(f); // Release the producer's snapshot before colour statistics.
+    Some(Frame {
+        generation,
+        sequence,
+        received,
+        stride,
+        raw,
+    })
+}
+
+fn accumulate_colour_samples(
+    frame: &Frame,
+    width: usize,
+    height: usize,
+    black: u16,
+    sums: &mut [f64; 3],
+    count: &mut u32,
+) {
     let sample = |x: usize, y: usize| -> u16 {
-        let at = y * stride + (x / 4) * 5;
-        u16::from(raw[at + x % 4]) * 4 + u16::from((raw[at + 4] >> (2 * (x % 4))) & 3)
+        let at = y * frame.stride + (x / 4) * 5;
+        u16::from(frame.raw[at + x % 4]) * 4 + u16::from((frame.raw[at + 4] >> (2 * (x % 4))) & 3)
     };
-    let mut sums = [0.; 3];
-    let mut count = 0;
     // Sparse grey-world statistics only. The GPU unpacks every output pixel.
     for y in (0..height).step_by(8) {
         for x in (0..width).step_by(8) {
@@ -355,19 +365,10 @@ fn snapshot(
                 for c in 0..3 {
                     sums[c] += f64::from(rgb[c]);
                 }
-                count += 1;
+                *count += 1;
             }
         }
     }
-    Some(Frame {
-        generation,
-        sequence,
-        received,
-        stride,
-        raw,
-        sums,
-        count,
-    })
 }
 
 pub struct Passthrough {
@@ -610,7 +611,6 @@ impl Passthrough {
                         frames[eye].as_deref(),
                         width,
                         height,
-                        config.black_level_10bit,
                     ) {
                         stats.reads[eye].fetch_add(1, Ordering::Relaxed);
                         stats.cpu_ns[eye]
@@ -629,16 +629,22 @@ impl Passthrough {
                     // Keep adaptation time stable as source frame rate increases.
                     if config.white_balance == "gray-world" && now >= next_balance {
                         next_balance = now + 33_333_333;
-                        let sums: [f64; 3] = std::array::from_fn(|c| {
-                            frames.iter().map(|f| f.as_ref().unwrap().sums[c]).sum()
-                        });
-                        if frames
-                            .iter()
-                            .map(|f| f.as_ref().unwrap().count)
-                            .sum::<u32>()
-                            > 100
-                            && sums.iter().all(|v| *v > 0.)
-                        {
+                        let mut sums = [0.; 3];
+                        let mut count = 0;
+                        for (eye, frame) in frames.iter().enumerate() {
+                            let started = now_ns();
+                            accumulate_colour_samples(
+                                frame.as_ref().unwrap(),
+                                width,
+                                height,
+                                config.black_level_10bit,
+                                &mut sums,
+                                &mut count,
+                            );
+                            stats.cpu_ns[eye]
+                                .fetch_add(now_ns().saturating_sub(started), Ordering::Relaxed);
+                        }
+                        if count > 100 && sums.iter().all(|v| *v > 0.) {
                             for c in 0..3 {
                                 let target = (sums[1] / sums[c]).clamp(0.5, 4.) as f32
                                     * config.colour_gain[c];
